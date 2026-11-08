@@ -43,7 +43,8 @@
   function muestrasDe(id) { return voces().filter(v => v.etiqueta === id); }
 
   function guardarHuella(id, huella) {
-    voces().push({ etiqueta: id, p: Voz.packMFCC(huella), t: Date.now() });
+    const vid = window.Supa ? Supa._uuid() : 'v' + Date.now() + Math.round(Math.random() * 999);
+    voces().push({ id: vid, etiqueta: id, p: Voz.packMFCC(huella), t: Date.now() });
     // máximo 8 muestras por palabra: las más viejas se van
     const propias = voces().filter(v => v.etiqueta === id);
     if (propias.length > 8) {
