@@ -85,11 +85,16 @@
     App.estado.maxIntra = +maxIntra.toFixed(3);
 
     let u = maxIntra * 1.03 * sens;
+    let entreMin = null;
     if (entre.length) {
       entre.sort((a, b) => a - b);
-      u = Math.min(u, entre[0] * 0.98);
+      entreMin = entre[0];
+      u = Math.min(u, entreMin * 0.98);
     }
-    return +Math.min(2.6, Math.max(0.5, u)).toFixed(2);
+    // el piso crece con lo distinto que son entre sí las palabras: si "agua" y "baño"
+    // quedan lejos, se tolera que el niño suene distinto sin llegar a confundirlas
+    const piso = entreMin ? Math.min(0.95, Math.max(0.5, entreMin * 0.55)) : 0.5;
+    return +Math.min(1.1, Math.max(piso, u)).toFixed(2);
   }
 
   /* ---------- reconocer ---------- */
@@ -112,12 +117,17 @@
     // si las dos mejores están casi empatadas y ninguna se parece a lo grabado, no adivinar
     const dentroDeLoConocido = mejor.distancia <= maxIntra;
     const ambiguo = !!segunda && ratio > 0.985 && !dentroDeLoConocido;
-    const pasa = mejor.distancia <= umbral && !ambiguo;
+    // un niño no suena igual que el papá: si la palabra ganadora queda muy por delante
+    // de la siguiente, se acepta aunque pase un poco del umbral
+    const ganadorClaro = !segunda || mejor.distancia * 1.5 <= segunda.distancia;
+    const limite = umbral * (ganadorClaro ? 1.3 : 1.0);
+    const pasa = mejor.distancia <= limite && !ambiguo;
 
     return {
       ok: pasa, etiqueta: mejor.etiqueta,
       distancia: +mejor.distancia.toFixed(2), umbral,
       margen: segunda ? +(segunda.distancia - mejor.distancia).toFixed(2) : null,
+      ranking: r.slice(0, 4).map(x => ({ etiqueta: x.etiqueta, d: +x.distancia.toFixed(2) })),
       motivo: pasa ? 'reconocido' : (ambiguo ? 'dudoso' : 'no seguro')
     };
   }
@@ -139,7 +149,7 @@
       return { ok: true, frase, dice };
     }
     if (!silencioso) {
-      App.decir({ em: '🤔', tx: 'No te entendí', cat: 'dilo otra vez' });
+      App.decir({ em: '🤔', tx: 'No te entendí', cat: '¿era otra? toca abajo para enseñarle' });
     }
     return { ok: false };
   }
@@ -155,8 +165,8 @@
       const buf = bufPrueba || await grabar(3500);
       const r = reconocer(buf);
       const t = traducir(r, silencioso);
-      ultimaEscucha = { buf, ok: !!t.ok, etiqueta: t.ok ? (r.etiqueta || null) : null, frase: t.frase || null };
-      if (typeof window.__aprender === 'function') window.__aprender({ ok: !!t.ok, frase: t.frase || '' });
+      ultimaEscucha = { buf, ok: !!t.ok, etiqueta: t.ok ? (r.etiqueta || null) : null, frase: t.frase || null, ranking: r.ranking || [] };
+      if (typeof window.__aprender === 'function') window.__aprender({ ok: !!t.ok, frase: t.frase || '', hayAudio: !!buf, ranking: r.ranking || [] });
       return t;
     } catch (e) {
       const m = String(e && e.message || e);

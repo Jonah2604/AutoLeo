@@ -332,17 +332,28 @@ function pintarOpcionesGrabar(){
     cont.innerHTML = '<div class="nota">Todavía no hay palabras. Abre Ajustes ⚙️ y agrega la primera.</div>';
     return;
   }
-  for (const p of ps){
+  let lista = ps;
+  let cerca = {};
+  if (modoCapa === 'corregir' && window.Mic && Mic._ultima){
+    const u = Mic._ultima();
+    for (const r of (u && u.ranking) || []) cerca[r.etiqueta] = r.d;
+    if (Object.keys(cerca).length){
+      lista = ps.slice().sort((a, b) => (cerca[a.id] == null ? 9 : cerca[a.id]) - (cerca[b.id] == null ? 9 : cerca[b.id]));
+    }
+  }
+  lista.forEach((p, i) => {
     const n = (estado.voces || []).filter(v => v.etiqueta === p.id).length;
     const b = document.createElement('button');
     b.className = 'opcion';
     b.innerHTML = '<span class="em"></span><span class="t"></span><span class="n"></span>';
     b.querySelector('.em').textContent = p.em || '🗣️';
     b.querySelector('.t').textContent = p.frase;
-    b.querySelector('.n').textContent = n ? n + '/8' : 'sin muestras';
+    b.querySelector('.n').textContent = (modoCapa === 'corregir' && i === 0)
+      ? (n ? 'más probable · ' + n + '/8' : 'más probable')
+      : (n ? n + '/8' : 'sin muestras');
     b.addEventListener('click', () => modoCapa === 'corregir' ? corregirCon(p.id, b) : grabarPara(p.id, b));
     cont.appendChild(b);
-  }
+  });
 }
 
 function abrirCapa(modo){
@@ -362,8 +373,14 @@ function abrirCapa(modo){
 
 /* ---------- el padre confirma si acertó ---------- */
 window.__aprender = function (info){
-  if (info && info.ok) filaAprendido.classList.add('ver');
-  else filaAprendido.classList.remove('ver');
+  // con audio reciente siempre se puede enseñar: si acertó se confirma, y si no, se corrige
+  const hay = !!(info && info.hayAudio);
+  if (!hay) { filaAprendido.classList.remove('ver'); return; }
+  const si = document.getElementById('btnSiEra');
+  const no = document.getElementById('btnNoEra');
+  if (info.ok) { si.style.display = ''; no.textContent = '✗ No era'; }
+  else { si.style.display = 'none'; no.textContent = '🤔 ¿Era otra?'; }
+  filaAprendido.classList.add('ver');
 };
 
 function notaAprendida(txt, frase){
