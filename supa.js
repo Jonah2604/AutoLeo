@@ -102,6 +102,12 @@
     return t ? JSON.parse(t) : null;
   }
 
+  // la huella puede venir como objeto {n,d,b} o como ese objeto en texto JSON
+  function comoHuella(p) {
+    if (typeof p === 'string') { try { return JSON.parse(p); } catch (e) { return p; } }
+    return p;
+  }
+
   function aIso(t) {
     const d = t ? new Date(t) : new Date();
     return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
@@ -119,7 +125,7 @@
       });
     }
     const muestras = (e.voces || []).map(v => ({
-      id: v.id, palabra_id: v.etiqueta, huella: v.p || v.huella, creado: aIso(v.t || v.creado)
+      id: v.id, palabra_id: v.etiqueta, huella: comoHuella(v.p || v.huella), creado: aIso(v.t || v.creado)
     }));
     if (muestras.length) {
       await pedir('muestras?on_conflict=id', {
@@ -164,7 +170,7 @@
     (e.voces || []).forEach(v => { vocesId[v.id] = v; });
     for (const m of mues || []) {
       if (!vocesId[m.id]) {
-        e.voces.push({ id: m.id, etiqueta: m.palabra_id, p: m.huella, t: new Date(m.creado).getTime() });
+        e.voces.push({ id: m.id, etiqueta: m.palabra_id, p: comoHuella(m.huella), t: new Date(m.creado).getTime() });
         cambio = true;
       }
     }

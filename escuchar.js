@@ -61,7 +61,11 @@
   function calcularUmbral() {
     const sens = App.estado.sens || 1.0;
     const porEtiqueta = {};
-    for (const v of voces()) (porEtiqueta[v.etiqueta] = porEtiqueta[v.etiqueta] || []).push(Voz.unpackMFCC(v.p));
+    for (const v of voces()) {
+      const h = Voz.unpackMFCC(v.p);
+      if (!h) continue;
+      (porEtiqueta[v.etiqueta] = porEtiqueta[v.etiqueta] || []).push(h);
+    }
     const etiquetas = Object.keys(porEtiqueta);
 
     const dentro = [], entre = [];
@@ -92,7 +96,9 @@
   function reconocer(buffer) {
     const h = Voz.huella(buffer);
     if (!h) return { ok: false, motivo: 'silencio' };
-    const lista = voces().map(v => ({ etiqueta: v.etiqueta, huella: Voz.unpackMFCC(v.p) }));
+    const lista = voces()
+      .map(v => ({ etiqueta: v.etiqueta, huella: Voz.unpackMFCC(v.p) }))
+      .filter(x => x.huella);
     if (!lista.length) return { ok: false, motivo: 'sin muestras' };
 
     const r = Voz.comparar(h, lista);
@@ -139,6 +145,7 @@
   }
 
   /* ---------- escuchar una vez ---------- */
+  let ultimaEscucha = null;
   async function escucharAhora(bufPrueba, silencioso) {
     const btn = document.getElementById('btnEscuchar');
     if (btn && btn.dataset.ocupado && !silencioso) return;
@@ -147,14 +154,36 @@
       if (!silencioso) App.decir({ em: '👂', tx: 'Escuchando…', cat: 'habla ahora' });
       const buf = bufPrueba || await grabar(3500);
       const r = reconocer(buf);
-      return traducir(r, silencioso);
+      const t = traducir(r, silencioso);
+      ultimaEscucha = { buf, ok: !!t.ok, etiqueta: t.ok ? (r.etiqueta || null) : null, frase: t.frase || null };
+      if (typeof window.__aprender === 'function') window.__aprender({ ok: !!t.ok, frase: t.frase || '' });
+      return t;
     } catch (e) {
-      if (!silencioso) App.decir({ em: '🎤', tx: 'Dale permiso al micrófono', cat: 'la primera vez hay que permitirlo' });
-      else { manos = false; avisar(); }
-      return { ok: false, error: String(e && e.message || e) };
+      const m = String(e && e.message || e);
+      if (!silencioso) {
+        if (/permission|denied|notallowed|requested device|device not found/i.test(m)) {
+          App.decir({ em: '🎤', tx: 'Dale permiso al micrófono', cat: 'la primera vez hay que permitirlo' });
+        } else {
+          App.decir({ em: '⚠️', tx: 'Algo falló', cat: 'dale otra vez' });
+        }
+      } else { manos = false; avisar(); }
+      return { ok: false, error: m };
     } finally {
       if (btn) { delete btn.dataset.ocupado; btn.classList.remove('oyendo'); btn.disabled = false; }
     }
+  }
+
+  /* ---------- aprender de la última escucha ----------
+     Si el padre confirma que acertó, o dice cuál palabra era, el mismo audio
+     se guarda como muestra nueva de esa palabra. */
+  function aprender(id) {
+    if (!ultimaEscucha || !ultimaEscucha.buf) return { ok: false, motivo: 'sin audio' };
+    const h = Voz.huella(ultimaEscucha.buf);
+    if (!h) return { ok: false, motivo: 'silencio' };
+    guardarHuella(id, h);
+    App.estado.umbral = calcularUmbral();
+    App.guardar();
+    return { ok: true, n: muestrasDe(id).length };
   }
 
   /* ---------- manos libres ---------- */
@@ -255,7 +284,8 @@
 
   window.Mic = {
     pedirMicro, grabar, reconocer, calcularUmbral, pintarPalabras,
-    escucharAhora, manosLibres, traducir,
+    escucharAhora, manosLibres, traducir, aprender,
+    _ultima: () => ultimaEscucha,
     _palabraDe: palabraDe, _voces: voces, _guardarHuella: guardarHuella
   };
 })();

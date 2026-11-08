@@ -259,7 +259,14 @@
   }
 
   function unpackMFCC(p) {
-    const flat = int8FromB64(p.b);
+    // una muestra puede venir como objeto {n,d,b} o como ese objeto en texto JSON
+    if (typeof p === 'string') {
+      try { p = JSON.parse(p); } catch (e) { return null; }
+    }
+    if (!p || typeof p !== 'object' || typeof p.b !== 'string' || !p.n || !p.d) return null;
+    let flat;
+    try { flat = int8FromB64(p.b); } catch (e) { return null; }
+    if (!flat || flat.length < p.n * p.d) return null;
     const frames = [];
     for (let i = 0; i < p.n; i++) {
       const row = new Float32Array(p.d);

@@ -49,6 +49,13 @@
   #btnGrabarPalabra:active{transform:translateY(1px)}
   #btnGrabarPalabra.ocupado{border-color:var(--gold);color:var(--gold)}
 
+  #aprendido{display:none;gap:8px;margin-top:10px;justify-content:center}
+  #aprendido.ver{display:flex}
+  #aprendido button{border:1px solid var(--line);background:var(--card2);color:var(--txt);
+    border-radius:999px;padding:9px 15px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+  #btnSiEra{border-color:#2f7d4f;color:#8ee0a8}
+  #btnNoEra{border-color:#7d3a3a;color:#f0a0a0}
+
   #capaGrabar{position:fixed;inset:0;background:rgba(4,7,16,.72);display:none;z-index:25;
     align-items:flex-end;justify-content:center;backdrop-filter:blur(3px)}
   #capaGrabar.abierto{display:flex}
@@ -129,6 +136,11 @@
   <div id="rEm">👋</div>
   <div id="rTx">Presiona y háblale</div>
   <div id="rSub">La app dice la frase completa por él</div>
+</div>
+
+<div id="aprendido">
+  <button id="btnSiEra">✓ Sí era</button>
+  <button id="btnNoEra">✗ No era</button>
 </div>
 
 <button id="btnEscuchar">🎤 Escuchar</button>
@@ -304,7 +316,9 @@ document.getElementById('btnEscuchar').addEventListener('click', () => { if (win
    Botón grande: elige la palabra, graba una muestra nueva y la suma a las que ya tiene. */
 const capaGrabar = document.getElementById('capaGrabar');
 const btnGrabarPalabra = document.getElementById('btnGrabarPalabra');
+const filaAprendido = document.getElementById('aprendido');
 let relojAviso = 0;
+let modoCapa = 'grabar';
 
 function cerrarGrabar(){ capaGrabar.classList.remove('abierto'); }
 document.getElementById('btnCerrarGrabar').addEventListener('click', cerrarGrabar);
@@ -326,9 +340,58 @@ function pintarOpcionesGrabar(){
     b.querySelector('.em').textContent = p.em || '🗣️';
     b.querySelector('.t').textContent = p.frase;
     b.querySelector('.n').textContent = n ? n + '/8' : 'sin muestras';
-    b.addEventListener('click', () => grabarPara(p.id, b));
+    b.addEventListener('click', () => modoCapa === 'corregir' ? corregirCon(p.id, b) : grabarPara(p.id, b));
     cont.appendChild(b);
   }
+}
+
+function abrirCapa(modo){
+  modoCapa = modo;
+  const h = capaGrabar.querySelector('h3');
+  const nota = capaGrabar.querySelector('.nota');
+  if (modo === 'corregir'){
+    h.textContent = '¿Qué dijo en realidad?';
+    nota.textContent = 'Guardo este mismo audio como muestra de la palabra correcta, así la próxima la reconoce.';
+  } else {
+    h.textContent = 'Grabar palabra';
+    nota.textContent = 'Elige la palabra y dilo tú, como lo dice él. Se guarda una muestra nueva para que la reconozca.';
+  }
+  pintarOpcionesGrabar();
+  capaGrabar.classList.add('abierto');
+}
+
+/* ---------- el padre confirma si acertó ---------- */
+window.__aprender = function (info){
+  if (info && info.ok) filaAprendido.classList.add('ver');
+  else filaAprendido.classList.remove('ver');
+};
+
+function notaAprendida(txt, frase){
+  filaAprendido.classList.remove('ver');
+  const r = document.getElementById('rSub');
+  if (r) r.textContent = txt;
+  const t = document.getElementById('rTx');
+  if (frase && t) t.textContent = frase;
+}
+
+document.getElementById('btnSiEra').addEventListener('click', () => {
+  const u = window.Mic && Mic._ultima();
+  const p = u && u.etiqueta ? (estado.palabras || []).find(x => x.id === u.etiqueta) : null;
+  if (!p) { notaAprendida('No guardé nada: no hay audio reciente.'); return; }
+  const r = Mic.aprender(p.id);
+  if (r.ok) notaAprendida('Aprendida «' + p.frase + '» · ' + r.n + '/8', p.frase);
+  else notaAprendida('No pude guardarla: ' + (r.motivo === 'silencio' ? 'no se oía nada' : 'no hay audio'), p.frase);
+});
+
+document.getElementById('btnNoEra').addEventListener('click', () => abrirCapa('corregir'));
+
+function corregirCon(id, boton){
+  const r = Mic.aprender(id);
+  const p = (estado.palabras || []).find(x => x.id === id);
+  cerrarGrabar();
+  if (r.ok) notaAprendida('Aprendida «' + (p ? p.frase : 'la palabra') + '» · ' + r.n + '/8', p ? p.frase : '');
+  else notaAprendida('No pude guardarla: ' + (r.motivo === 'silencio' ? 'no se oía nada' : 'no hay audio'), p ? p.frase : '');
+  if (window.Mic) Mic.pintarPalabras();
 }
 
 function nivel(buf){
@@ -381,8 +444,7 @@ function avisarGrabado(id, n){
 }
 
 btnGrabarPalabra.addEventListener('click', () => {
-  pintarOpcionesGrabar();
-  capaGrabar.classList.add('abierto');
+  abrirCapa('grabar');
 });
 
 document.getElementById('btnManos').addEventListener('click', () => {
