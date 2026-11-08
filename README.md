@@ -18,7 +18,7 @@ Sin internet y sin cuentas. El audio se convierte en una huella de 13 números c
 - Perilla **Estricto / Normal / Tolerante** para el adulto.
 - Si dos palabras quedan casi empatadas y ninguna se parece a lo grabado, contesta "No te entendí" en vez de adivinar.
 
-**Ningún audio sale del teléfono**: todo vive en el almacenamiento local del navegador.
+**Ningún audio sale del teléfono.** Todo se guarda primero en el navegador y la app funciona sin internet. Como respaldo se suben a Supabase solo el texto de las palabras y una huella numérica (MFCC, ~1 KB) de cada muestra, nunca el audio. En Ajustes hay **Guardar copia** y **Restaurar copia** para mover todo a otro teléfono con un archivo.
 
 ## Archivos
 
