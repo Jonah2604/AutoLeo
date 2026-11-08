@@ -1,6 +1,6 @@
 /* AutoLeo - shell en cache para abrir sin red.
    Navegacion: primero la red (para recibir mejoras), si no hay red usa el cache. */
-const CACHE = 'autoleo-v7';
+const CACHE = 'autoleo-v8';
 const ARCHIVOS = ['./', 'index.html', 'manifest.webmanifest', 'voz.js', 'escuchar.js', 'supa.js', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

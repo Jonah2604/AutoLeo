@@ -43,6 +43,27 @@
   #btnEscuchar.oyendo{background:linear-gradient(180deg,#ffd0d0,#ff6b6b 60%,#c53d3d);color:#2a0000}
   #btnEscuchar[disabled]{opacity:.6}
 
+  #btnGrabarPalabra{width:100%;border:1px solid var(--line);border-radius:999px;padding:15px 18px;
+    font:inherit;font-size:16px;font-weight:700;color:var(--txt);background:var(--card2);
+    cursor:pointer}
+  #btnGrabarPalabra:active{transform:translateY(1px)}
+  #btnGrabarPalabra.ocupado{border-color:var(--gold);color:var(--gold)}
+
+  #capaGrabar{position:fixed;inset:0;background:rgba(4,7,16,.72);display:none;z-index:25;
+    align-items:flex-end;justify-content:center;backdrop-filter:blur(3px)}
+  #capaGrabar.abierto{display:flex}
+  #capaGrabar .hoja{background:#111829;border-top-left-radius:20px;border-top-right-radius:20px;
+    width:100%;max-width:560px;max-height:92vh;overflow:auto;padding:18px 16px calc(22px + env(safe-area-inset-bottom))}
+  #capaGrabar h3{margin:0 0 6px;font-size:17px}
+  #capaGrabar .nota{font-size:12px;color:var(--mut);margin:0 0 10px;line-height:1.45}
+  .opcion{display:flex;align-items:center;gap:10px;background:#0e1428;border:1px solid var(--line);
+    border-radius:12px;padding:12px;margin-top:8px;font:inherit;font-size:14px;color:var(--txt);
+    text-align:left;width:100%;cursor:pointer}
+  .opcion:disabled{opacity:.75}
+  .opcion .em{font-size:20px;line-height:1}
+  .opcion .t{flex:1;font-weight:600}
+  .opcion .n{font-size:11px;color:var(--mut)}
+
   nav{display:flex;gap:8px}
   nav button{flex:1;background:var(--card2);border:1px solid var(--line);color:var(--txt);
     border-radius:14px;padding:12px 8px;font-size:13px;font-weight:600;cursor:pointer}
@@ -111,6 +132,16 @@
 </div>
 
 <button id="btnEscuchar">🎤 Escuchar</button>
+<button id="btnGrabarPalabra">🎙️ Grabar palabra</button>
+
+<div id="capaGrabar">
+  <div class="hoja">
+    <h3>Grabar palabra</h3>
+    <p class="nota">Elige la palabra y dilo tú, como lo dice él. Se guarda una muestra nueva para que la reconozca.</p>
+    <div id="opcionesGrabar"></div>
+    <div class="fila"><button id="btnCerrarGrabar">Cerrar</button></div>
+  </div>
+</div>
 
 <nav>
   <button id="btnRepetir">🔁 Repetir</button>
@@ -268,6 +299,92 @@ document.getElementById('btnSilencio').textContent = estado.voz ? '🔊' : '🔇
 
 document.getElementById('btnRepetir').addEventListener('click', () => { if (ultimo) decir(ultimo); });
 document.getElementById('btnEscuchar').addEventListener('click', () => { if (window.Mic) Mic.escucharAhora(); });
+
+/* ---------- grabar palabra ----------
+   Botón grande: elige la palabra, graba una muestra nueva y la suma a las que ya tiene. */
+const capaGrabar = document.getElementById('capaGrabar');
+const btnGrabarPalabra = document.getElementById('btnGrabarPalabra');
+let relojAviso = 0;
+
+function cerrarGrabar(){ capaGrabar.classList.remove('abierto'); }
+document.getElementById('btnCerrarGrabar').addEventListener('click', cerrarGrabar);
+capaGrabar.addEventListener('click', e => { if (e.target === capaGrabar) cerrarGrabar(); });
+
+function pintarOpcionesGrabar(){
+  const cont = document.getElementById('opcionesGrabar');
+  cont.innerHTML = '';
+  const ps = estado.palabras || [];
+  if (!ps.length){
+    cont.innerHTML = '<div class="nota">Todavía no hay palabras. Abre Ajustes ⚙️ y agrega la primera.</div>';
+    return;
+  }
+  for (const p of ps){
+    const n = (estado.voces || []).filter(v => v.etiqueta === p.id).length;
+    const b = document.createElement('button');
+    b.className = 'opcion';
+    b.innerHTML = '<span class="em"></span><span class="t"></span><span class="n"></span>';
+    b.querySelector('.em').textContent = p.em || '🗣️';
+    b.querySelector('.t').textContent = p.frase;
+    b.querySelector('.n').textContent = n ? n + '/8' : 'sin muestras';
+    b.addEventListener('click', () => grabarPara(p.id, b));
+    cont.appendChild(b);
+  }
+}
+
+function nivel(buf){
+  try {
+    const d = buf.getChannelData(0);
+    let s = 0, n = 0;
+    for (let i = 0; i < d.length; i += 4){ s += d[i] * d[i]; n++; }
+    return Math.sqrt(s / n);
+  } catch (e) { return 1; }
+}
+
+async function grabarPara(id, boton){
+  if (boton.disabled) return;
+  const antes = boton.querySelector('.n').textContent;
+  boton.disabled = true;
+  boton.querySelector('.n').textContent = 'oye…';
+  App.decir({ em: '🎙️', tx: 'Grabando…', cat: 'dilo ahora' });
+  try {
+    const buf = await Mic.grabar(2200);
+    const h = Voz.huella(buf);
+    if (!h || nivel(buf) < 0.01){
+      boton.querySelector('.n').textContent = 'no oí nada';
+    } else {
+      Mic._guardarHuella(id, h);
+      estado.umbral = Mic.calcularUmbral();
+      guardar();
+      const n = (estado.voces || []).filter(v => v.etiqueta === id).length;
+      boton.querySelector('.n').textContent = n + '/8';
+      boton.disabled = false;
+      cerrarGrabar();
+      avisarGrabado(id, n);
+      return;
+    }
+  } catch (e) {
+    boton.querySelector('.n').textContent = 'falta el micrófono';
+  }
+  boton.disabled = false;
+  setTimeout(() => { boton.querySelector('.n').textContent = antes; }, 1500);
+}
+
+function avisarGrabado(id, n){
+  const p = (estado.palabras || []).find(x => x.id === id);
+  btnGrabarPalabra.classList.add('ocupado');
+  btnGrabarPalabra.textContent = '✅ ' + (p ? p.frase : 'palabra') + ' · ' + n + '/8';
+  clearTimeout(relojAviso);
+  relojAviso = setTimeout(() => {
+    btnGrabarPalabra.classList.remove('ocupado');
+    btnGrabarPalabra.textContent = '🎙️ Grabar palabra';
+  }, 2600);
+}
+
+btnGrabarPalabra.addEventListener('click', () => {
+  pintarOpcionesGrabar();
+  capaGrabar.classList.add('abierto');
+});
+
 document.getElementById('btnManos').addEventListener('click', () => {
   if (!window.Mic) return;
   Mic.manosLibres();
