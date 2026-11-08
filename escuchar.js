@@ -81,10 +81,16 @@
     for (const e of etiquetas) {
       const hs = porEtiqueta[e];
       for (let i = 0; i < hs.length; i++)
-        for (let j = i + 1; j < hs.length; j++) dentro.push(Voz.dtw(hs[i], hs[j]));
+        for (let j = i + 1; j < hs.length; j++) {
+          const d = Voz.dtw(hs[i], hs[j]);
+          if (isFinite(d)) dentro.push(d);   // una muestra con ceros digitales devuelve NaN y tumbaba todo el umbral
+        }
       for (const o of etiquetas) {
         if (o <= e) continue;
-        for (const a of hs) for (const b of porEtiqueta[o]) entre.push(Voz.dtw(a, b));
+        for (const a of hs) for (const b of porEtiqueta[o]) {
+          const d = Voz.dtw(a, b);
+          if (isFinite(d)) entre.push(d);
+        }
       }
     }
     if (!dentro.length) return 2.0;
@@ -103,7 +109,12 @@
     // el piso crece con lo distinto que son entre sí las palabras: si "agua" y "baño"
     // quedan lejos, se tolera que el niño suene distinto sin llegar a confundirlas
     const piso = entreMin ? Math.min(0.95, Math.max(0.5, entreMin * 0.55)) : 0.5;
-    return +Math.min(1.1, Math.max(piso, u)).toFixed(2);
+    // El techo fijo de 1.1 quedaba por debajo de la variabilidad normal de una palabra
+    // corta: "sí" da 2.0-2.2 entre grabaciones buenas de la misma persona, así que
+    // ningún intento pasaba y la app contestaba "No te entendí" con la palabra correcta.
+    // El techo ahora sigue a la variabilidad medida (maxIntra) en vez de ser un número fijo.
+    const techo = Math.min(3.0, Math.max(1.2, maxIntra * 1.12));
+    return +Math.min(techo, Math.max(piso, u)).toFixed(2);
   }
 
   /* ---------- aviso al grabar ----------
