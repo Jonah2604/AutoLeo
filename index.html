@@ -283,8 +283,11 @@ function decir(x){
   const b = document.getElementById('resultado');
   b.classList.add('hablando');
   setTimeout(() => b.classList.remove('hablando'), 1200);
+  // x.mudo: se muestra en pantalla pero no se dice en voz alta
+  // (la ventana de escucha no debe captar la voz de la app)
   if (!estado.voz || !('speechSynthesis' in window)) return;
   speechSynthesis.cancel();
+  if (x.mudo) return;
   const u = new SpeechSynthesisUtterance(x.tx);
   if (vozEs) u.voice = vozEs;
   u.lang = (vozEs && vozEs.lang) || 'es-MX';
@@ -454,7 +457,7 @@ async function grabarPara(id, boton){
   const antes = boton.querySelector('.n').textContent;
   boton.disabled = true;
   boton.querySelector('.n').textContent = 'oye…';
-  App.decir({ em: '🎙️', tx: 'Grabando…', cat: 'dilo ahora' });
+  App.decir({ em: '🎙️', tx: 'Grabando…', cat: 'dilo ahora', mudo: true });
   try {
     const buf = await Mic.grabar(2200);
     const h = Voz.huella(buf);

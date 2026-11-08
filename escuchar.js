@@ -245,7 +245,10 @@
     if (btn && btn.dataset.ocupado && !silencioso) return;
     if (btn) { btn.dataset.ocupado = '1'; btn.classList.add('oyendo'); btn.disabled = true; }
     try {
-      if (!silencioso) App.decir({ em: '👂', tx: 'Escuchando…', cat: 'habla ahora' });
+      // Antes la app decía «Escuchando…» en voz alta y grababa al mismo tiempo: el
+      // celular metía su propia voz en la grabación, o el niño esperaba a que
+      // terminara de hablar. Ahora solo se ve en pantalla y se graba en seguida.
+      if (!silencioso) App.decir({ em: '👂', tx: 'Escuchando…', cat: 'habla ya', mudo: true });
       const buf = bufPrueba || await grabar(3500);
       // si no se dijo nada, no comparar: el silencio se parecía a alguna palabra y la app "adivinaba"
       if (buf && !bufPrueba && esSilencio(buf)) {
