@@ -145,7 +145,7 @@
     if (btn) { btn.dataset.ocupado = '1'; btn.classList.add('oyendo'); btn.disabled = true; }
     try {
       if (!silencioso) App.decir({ em: '👂', tx: 'Escuchando…', cat: 'habla ahora' });
-      const buf = bufPrueba || await grabar(2400);
+      const buf = bufPrueba || await grabar(3500);
       const r = reconocer(buf);
       return traducir(r, silencioso);
     } catch (e) {
