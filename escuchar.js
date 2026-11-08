@@ -168,7 +168,10 @@
     const ambiguo = !!segunda && ratio > 0.985 && !dentroDeLoConocido;
     // un niño no suena igual que el papá: si la palabra ganadora queda muy por delante
     // de la siguiente, se acepta aunque pase un poco del umbral
-    const ganadorClaro = !segunda || mejor.distancia * 1.5 <= segunda.distancia;
+    // 1.5 era demasiado: con dos palabras cortas y parecidas ("sí" y "no") la segunda
+    // nunca queda 50% más lejos, así que se perdía la tolerancia extra y fallaba la buena.
+    // Un 12% de ventaja ya es señal suficiente para creerle al ganador.
+    const ganadorClaro = !segunda || mejor.distancia * 1.12 <= segunda.distancia;
     const limite = umbral * (ganadorClaro ? 1.3 : 1.0);
     const pasa = mejor.distancia <= limite && !ambiguo;
 
@@ -182,6 +185,21 @@
   }
 
   function palabraDe(id) { return palabras().find(p => p.id === id) || null; }
+
+  /* Qué tan distintas son entre sí las muestras de una palabra. Si sale alta, esa
+     palabra se grabó de formas muy diferentes y va a fallar al reconocerla. */
+  function dispersion(id) {
+    const hs = voces().filter(v => v.etiqueta === id)
+      .map(v => Voz.unpackMFCC(v.p)).filter(Boolean);
+    if (hs.length < 2) return null;
+    let s = 0, n = 0;
+    for (let i = 0; i < hs.length; i++)
+      for (let j = i + 1; j < hs.length; j++) {
+        const d = Voz.dtw(hs[i], hs[j]);
+        if (isFinite(d)) { s += d; n++; }
+      }
+    return n ? +(s / n).toFixed(2) : null;
+  }
 
   /* ---------- traducir y decir ---------- */
   function traducir(r, silencioso) {
@@ -198,7 +216,14 @@
       return { ok: true, frase, dice };
     }
     if (!silencioso) {
-      App.decir({ em: '🤔', tx: 'No te entendí', cat: '¿era otra? toca abajo para enseñarle' });
+      // números a la vista: sin ellos no hay forma de saber si falla el umbral,
+      // si la palabra está mal grabada o si se parece demasiado a otra
+      const cerca = r.ranking && r.ranking[0];
+      const nom = cerca ? ((palabraDe(cerca.etiqueta) || {}).frase || '?') : '';
+      const det = cerca
+        ? 'd ' + r.distancia + ' · umbral ' + r.umbral + ' · más cerca «' + nom + '» ' + cerca.d
+        : 'no hubo comparación';
+      App.decir({ em: '🤔', tx: 'No te entendí', cat: det + ' · toca abajo para enseñarle' });
     }
     return { ok: false };
   }
@@ -318,10 +343,11 @@
     }
     for (const p of ps) {
       const n = muestrasDe(p.id).length;
+      const disp = dispersion(p.id);
       const row = document.createElement('div');
       row.className = 'p-fila' + (n ? ' listo' : '');
       row.innerHTML = `<span class="em">${esc(p.em || '🗣️')}</span>
-        <span class="txt">${esc(p.frase)}<small>${p.dice ? '«' + esc(p.dice) + '»' : 'sin anotar cómo lo dice'}</small></span>
+        <span class="txt">${esc(p.frase)}<small>${p.dice ? '«' + esc(p.dice) + '»' : 'sin anotar cómo lo dice'}${disp !== null ? ' · disp ' + disp : ''}</small></span>
         <span class="cuenta${n && n < 3 ? ' pocas' : ''}" title="${n && n < 3 ? 'Con menos de 3 muestras el umbral sale de una sola comparación' : ''}">${n ? n + '/8' + (n < 3 ? ' · faltan ' + (3 - n) : '') : '—'}</span>
         <button class="grabar">${n ? 'otra' : 'grabar'}</button>
         <button class="ed" title="Editar">✎</button>
