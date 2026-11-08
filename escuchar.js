@@ -106,6 +106,35 @@
     return +Math.min(1.1, Math.max(piso, u)).toFixed(2);
   }
 
+  /* ---------- aviso al grabar ----------
+     Antes de guardar una muestra, mira si ese audio se parece más a otra
+     palabra ya grabada. Evita el caso de anotar "baño" cuando el niño dijo
+     "agua": una muestra mal etiquetada contamina el catálogo y sube el umbral. */
+  function promedioCercano(h, hs, k) {
+    const ds = hs.map(x => Voz.dtw(h, x)).sort((a, b) => a - b).slice(0, k || 3);
+    return ds.reduce((a, b) => a + b, 0) / ds.length;
+  }
+
+  function parecidoA(h, idElegido) {
+    const porEtq = {};
+    for (const v of voces()) {
+      const x = Voz.unpackMFCC(v.p);
+      if (x) (porEtq[v.etiqueta] = porEtq[v.etiqueta] || []).push(x);
+    }
+    const dPropia = porEtq[idElegido] ? promedioCercano(h, porEtq[idElegido]) : null;
+    let otra = null;
+    for (const id in porEtq) {
+      if (id === idElegido || porEtq[id].length < 2) continue;   // con 1 muestra no hay palabra con qué comparar
+      const d = promedioCercano(h, porEtq[id]);
+      if (!otra || d < otra.d) otra = { id, d };
+    }
+    if (!otra) return { otra: null, dPropia };
+    const umbral = App.estado.umbral || calcularUmbral();
+    const masCerca = dPropia === null || otra.d <= dPropia * 0.8;
+    const aviso = masCerca && otra.d <= umbral * 1.15 ? { id: otra.id, d: +otra.d.toFixed(2) } : null;
+    return { otra: aviso, dPropia: dPropia === null ? null : +dPropia.toFixed(2) };
+  }
+
   /* ---------- reconocer ---------- */
   function reconocer(buffer) {
     const h = Voz.huella(buffer);
@@ -236,6 +265,17 @@
   const $ = s => document.querySelector(s);
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+  // devuelve false si el padre dice que no: así no se guarda una muestra mal etiquetada
+  function confirmarParecido(h, idElegido) {
+    const r = parecidoA(h, idElegido);
+    if (!r.otra) return true;
+    const suya = palabraDe(idElegido), otra = palabraDe(r.otra.id);
+    if (!suya || !otra) return true;
+    return confirm('Esto se parece más a «' + otra.frase + '».\n\n'
+      + '¿Seguro que es «' + suya.frase + '»?\n\n'
+      + 'Si te equivocas aquí, la app aprende mal.');
+  }
+
   function pintarPalabras() {
     const cont = $('#listaPalabras');
     if (!cont) return;
@@ -244,7 +284,11 @@
     const umbral = App.estado.umbral || calcularUmbral();
     const res = $('#resumen');
     if (res) {
+      const cortas = palabras().filter(p => muestrasDe(p.id).length > 0 && muestrasDe(p.id).length < 3).length;
+      const sinNada = palabras().filter(p => !muestrasDe(p.id).length).length;
       res.innerHTML = (total ? total + ' muestras · umbral ' + umbral : 'Aún no hay muestras. Graba cada palabra unas 5 veces.')
+        + (cortas ? '<div class="aviso">' + cortas + (cortas === 1 ? ' palabra tiene' : ' palabras tienen') + ' menos de 3 muestras: la próxima puede fallar.</div>' : '')
+        + (sinNada ? '<div class="aviso">' + sinNada + (sinNada === 1 ? ' palabra está' : ' palabras están') + ' sin ninguna muestra.</div>' : '')
         + '<div class="sens">'
         + [['Estricto', 0.92], ['Normal', 1.0], ['Tolerante', 1.08]]
             .map(([n, v]) => `<button data-sens="${v}" class="${Math.abs((App.estado.sens || 1) - v) < 0.01 ? 'sel' : ''}">${n}</button>`).join('')
@@ -267,7 +311,7 @@
       row.className = 'p-fila' + (n ? ' listo' : '');
       row.innerHTML = `<span class="em">${esc(p.em || '🗣️')}</span>
         <span class="txt">${esc(p.frase)}<small>${p.dice ? '«' + esc(p.dice) + '»' : 'sin anotar cómo lo dice'}</small></span>
-        <span class="cuenta">${n ? n + '/8' : '—'}</span>
+        <span class="cuenta${n && n < 3 ? ' pocas' : ''}" title="${n && n < 3 ? 'Con menos de 3 muestras el umbral sale de una sola comparación' : ''}">${n ? n + '/8' + (n < 3 ? ' · faltan ' + (3 - n) : '') : '—'}</span>
         <button class="grabar">${n ? 'otra' : 'grabar'}</button>
         <button class="ed" title="Editar">✎</button>
         <button class="del">✕</button>`;
@@ -279,6 +323,9 @@
           const buf = await grabar(2200);
           const h = Voz.huella(buf);
           if (!h) { b.textContent = 'silencio'; }
+          else if (!confirmarParecido(h, p.id)) {
+            b.textContent = 'no guardé';
+          }
           else {
             guardarHuella(p.id, h);
             App.estado.umbral = calcularUmbral();
@@ -314,6 +361,7 @@
     pedirMicro, grabar, reconocer, calcularUmbral, pintarPalabras,
     escucharAhora, manosLibres, traducir, aprender, borrarMuestra,
     _ultima: () => ultimaEscucha,
-    _palabraDe: palabraDe, _voces: voces, _guardarHuella: guardarHuella
+    _palabraDe: palabraDe, _voces: voces, _guardarHuella: guardarHuella,
+    _parecidoA: parecidoA, _confirmarParecido: confirmarParecido
   };
 })();

@@ -1,7 +1,7 @@
 /* AutoLeo - shell en cache para abrir sin red.
    Todo va primero a la red: así cualquier cambio se ve la próxima vez que abre la app.
    Si no hay red, se usa la copia guardada. */
-const CACHE = 'autoleo-v13';
+const CACHE = 'autoleo-v14';
 const ARCHIVOS = ['./', 'index.html', 'manifest.webmanifest', 'voz.js', 'escuchar.js', 'supa.js', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

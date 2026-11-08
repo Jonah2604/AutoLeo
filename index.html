@@ -116,6 +116,8 @@
   .p-fila .txt{flex:1;line-height:1.25}
   .p-fila .txt small{display:block;color:var(--gold);font-size:11.5px;margin-top:2px}
   .p-fila .cuenta{font-size:11px;color:var(--mut);min-width:26px;text-align:right}
+  .p-fila .cuenta.pocas{color:#e8b64c;min-width:74px}
+  .aviso{margin-top:8px;font-size:11.5px;color:#e8b64c}
   .p-fila.listo .cuenta{color:var(--ok)}
   .p-fila button{background:var(--card2);border:1px solid var(--line);color:var(--txt);
     border-radius:9px;padding:7px 10px;font-size:11.5px;font-weight:600;cursor:pointer}
@@ -377,7 +379,7 @@ function pintarOpcionesGrabar(){
     b.querySelector('.t').textContent = p.frase;
     b.querySelector('.n').textContent = (modoCapa === 'corregir' && i === 0)
       ? (n ? 'más probable · ' + n + '/8' : 'más probable')
-      : (n ? n + '/8' : 'sin muestras');
+      : (n ? n + '/8' + (n < 3 ? ' · faltan ' + (3 - n) : '') : 'sin muestras');
     b.addEventListener('click', () => modoCapa === 'corregir' ? corregirCon(p.id, b) : grabarPara(p.id, b));
     cont.appendChild(b);
   });
@@ -458,6 +460,8 @@ async function grabarPara(id, boton){
     const h = Voz.huella(buf);
     if (!h || nivel(buf) < 0.01){
       boton.querySelector('.n').textContent = 'no oí nada';
+    } else if (window.Mic && Mic._confirmarParecido && !Mic._confirmarParecido(h, id)){
+      boton.querySelector('.n').textContent = 'no guardé';
     } else {
       Mic._guardarHuella(id, h);
       estado.umbral = Mic.calcularUmbral();
@@ -479,7 +483,8 @@ async function grabarPara(id, boton){
 function avisarGrabado(id, n){
   const p = (estado.palabras || []).find(x => x.id === id);
   btnGrabarPalabra.classList.add('ocupado');
-  btnGrabarPalabra.textContent = '✅ ' + (p ? p.frase : 'palabra') + ' · ' + n + '/8';
+  btnGrabarPalabra.textContent = '✅ ' + (p ? p.frase : 'palabra') + ' · ' + n + '/8'
+    + (n < 3 ? ' · faltan ' + (3 - n) : '');
   clearTimeout(relojAviso);
   relojAviso = setTimeout(() => {
     btnGrabarPalabra.classList.remove('ocupado');
