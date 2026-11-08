@@ -113,10 +113,43 @@
     return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
   }
 
+  /* ---------- borrar ----------
+     Se apunta el id y se intenta al momento; si no hay red queda en la lista
+     y se reintenta en el siguiente ciclo. */
+  const PEND = 'autoleo.borrados';
+
+  function pendientes() {
+    try { return JSON.parse(localStorage.getItem(PEND) || '[]'); } catch (e) { return []; }
+  }
+  function setPendientes(a) {
+    try { localStorage.setItem(PEND, JSON.stringify(a.slice(-200))); } catch (e) {}
+  }
+
+  function borrar(tabla, id) {
+    if (!tabla || !id) return;
+    if (!esUUID(id)) return;   // lo que nunca se subió (ids viejos) no se borra en la nube
+    setPendientes([...pendientes(), { tabla, id }]);
+    encolar(400);
+  }
+
+  async function aplicarBorrados() {
+    const lista = pendientes();
+    if (!lista.length) return;
+    const quedan = [];
+    for (const b of lista) {
+      try {
+        await pedir(b.tabla + '?id=eq.' + encodeURIComponent(b.id), { method: 'DELETE' });
+      } catch (e) { quedan.push(b); }
+    }
+    setPendientes(quedan);
+  }
+
   /* ---------- subir ---------- */
   async function subir() {
     const e = App.estado;
-    const palabras = (e.palabras || []).map(p => ({
+    // lo que está en la cola de borrados no se vuelve a subir
+    const fuera = new Set(pendientes().map(b => b.id));
+    const palabras = (e.palabras || []).filter(p => !fuera.has(p.id)).map(p => ({
       id: p.id, frase: p.frase, dice: p.dice || '', em: p.em || '🗣️', actualizado: aIso(p.act)
     }));
     if (palabras.length) {
@@ -124,7 +157,7 @@
         method: 'POST', prefer: 'resolution=merge-duplicates,return=minimal', body: palabras
       });
     }
-    const muestras = (e.voces || []).map(v => ({
+    const muestras = (e.voces || []).filter(v => !fuera.has(v.id)).map(v => ({
       id: v.id, palabra_id: v.etiqueta, huella: comoHuella(v.p || v.huella), creado: aIso(v.t || v.creado)
     }));
     if (muestras.length) {
@@ -197,6 +230,7 @@
     marca('☁️ guardando…', '');
     try {
       await entrar();
+      await aplicarBorrados();
       await subir();
       await bajar();
       marca('☁️ al día', 'ok');
@@ -225,7 +259,7 @@
   addEventListener('offline', () => marca('☁️ sin red', 'off'));
 
   window.Supa = {
-    iniciar, encolar, ciclo, subir, bajar, entrar, marca,
+    iniciar, encolar, ciclo, subir, bajar, entrar, marca, borrar,
     get sesion() { return sesion; },
     get pendiente() { return pendiente; },
     _uuid: uuid

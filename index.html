@@ -56,13 +56,13 @@
   #btnSiEra{border-color:#2f7d4f;color:#8ee0a8}
   #btnNoEra{border-color:#7d3a3a;color:#f0a0a0}
 
-  #capaGrabar{position:fixed;inset:0;background:rgba(4,7,16,.72);display:none;z-index:25;
+  #capaGrabar,#capaEditar{position:fixed;inset:0;background:rgba(4,7,16,.72);display:none;z-index:25;
     align-items:flex-end;justify-content:center;backdrop-filter:blur(3px)}
-  #capaGrabar.abierto{display:flex}
-  #capaGrabar .hoja{background:#111829;border-top-left-radius:20px;border-top-right-radius:20px;
+  #capaGrabar.abierto,#capaEditar.abierto{display:flex}
+  #capaGrabar .hoja,#capaEditar .hoja{background:#111829;border-top-left-radius:20px;border-top-right-radius:20px;
     width:100%;max-width:560px;max-height:92vh;overflow:auto;padding:18px 16px calc(22px + env(safe-area-inset-bottom))}
-  #capaGrabar h3{margin:0 0 6px;font-size:17px}
-  #capaGrabar .nota{font-size:12px;color:var(--mut);margin:0 0 10px;line-height:1.45}
+  #capaGrabar h3,#capaEditar h3{margin:0 0 6px;font-size:17px}
+  #capaGrabar .nota,#capaEditar .nota{font-size:12px;color:var(--mut);margin:0 0 10px;line-height:1.45}
   .opcion{display:flex;align-items:center;gap:10px;background:#0e1428;border:1px solid var(--line);
     border-radius:12px;padding:12px;margin-top:8px;font:inherit;font-size:14px;color:var(--txt);
     text-align:left;width:100%;cursor:pointer}
@@ -70,6 +70,16 @@
   .opcion .em{font-size:20px;line-height:1}
   .opcion .t{flex:1;font-weight:600}
   .opcion .n{font-size:11px;color:var(--mut)}
+
+  #capaEditar label{display:block;font-size:11.5px;color:var(--mut);margin:12px 0 5px}
+  #capaEditar input{width:100%;background:#0e1428;border:1px solid var(--line);color:var(--txt);
+    border-radius:10px;padding:10px;font:inherit;font-size:14px}
+  #capaEditar input:focus{outline:0;border-color:var(--gold)}
+  .m-fila{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--mut);
+    padding:8px 0;border-bottom:1px solid var(--line)}
+  .m-fila .d{flex:1}
+  .m-fila .x{background:var(--card2);border:1px solid #4a2733;color:var(--rojo);
+    border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:600;cursor:pointer}
 
   nav{display:flex;gap:8px}
   nav button{flex:1;background:var(--card2);border:1px solid var(--line);color:var(--txt);
@@ -152,6 +162,23 @@
     <p class="nota">Elige la palabra y dilo tú, como lo dice él. Se guarda una muestra nueva para que la reconozca.</p>
     <div id="opcionesGrabar"></div>
     <div class="fila"><button id="btnCerrarGrabar">Cerrar</button></div>
+  </div>
+</div>
+
+<div id="capaEditar">
+  <div class="hoja">
+    <h3>Editar palabra</h3>
+    <p class="nota" id="edNota">Corrige la frase o cómo la dice él. El audio no se guarda, solo una huella: no puedo volver a reproducirlo, pero sí puedes borrar la muestra que salió mal y grabar otra.</p>
+    <label for="edFrase">Frase completa</label>
+    <input id="edFrase" placeholder="Ej. Quiero agua" autocomplete="off">
+    <label for="edDice">Cómo lo dice él (opcional)</label>
+    <input id="edDice" placeholder="Ej. awa" autocomplete="off">
+    <label for="edEmoji">Emoji</label>
+    <input id="edEmoji" placeholder="💧" maxlength="4" style="width:84px;text-align:center;font-size:19px">
+    <div class="cab" id="edMuestrasTitulo" style="margin-top:16px">Muestras de su voz</div>
+    <div id="edMuestras"></div>
+    <div class="fila"><button class="pri" id="btnEdGuardar">Guardar cambios</button></div>
+    <div class="fila"><button id="btnEdCerrar">Cerrar</button></div>
   </div>
 </div>
 
@@ -483,6 +510,73 @@ document.getElementById('btnLimpiar').addEventListener('click', () => {
   if ('speechSynthesis' in window) speechSynthesis.cancel();
 });
 
+/* ---------- editar palabra ----------
+   Sirve para corregir la frase o cómo la dice él, y para borrar muestras
+   que quedaron mal (la app guarda la huella, no el audio). */
+const capaEditar = document.getElementById('capaEditar');
+let editando = null;
+
+function cerrarEditar(){ capaEditar.classList.remove('abierto'); editando = null; }
+document.getElementById('btnEdCerrar').addEventListener('click', cerrarEditar);
+capaEditar.addEventListener('click', e => { if (e.target === capaEditar) cerrarEditar(); });
+
+function fechaCorta(t){
+  if (!t) return 'sin fecha';
+  const d = new Date(t), hoy = new Date();
+  const hh = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  return (d.toDateString() === hoy.toDateString() ? 'hoy ' : d.getDate() + '/' + (d.getMonth() + 1) + ' ') + hh;
+}
+
+function pintarMuestrasEd(){
+  const cont = document.getElementById('edMuestras');
+  const tit = document.getElementById('edMuestrasTitulo');
+  if (!editando){ cont.innerHTML = ''; return; }
+  const ms = (estado.voces || []).filter(v => v.etiqueta === editando).sort((a, b) => (a.t || 0) - (b.t || 0));
+  tit.textContent = ms.length ? 'Muestras de su voz · ' + ms.length + '/8' : 'Muestras de su voz · ninguna';
+  if (!ms.length){
+    cont.innerHTML = '<div class="nota">Sin muestras: así no puede reconocer esta palabra. Usa «🎙️ Grabar palabra» con la voz de Leo.</div>';
+    return;
+  }
+  cont.innerHTML = '';
+  ms.forEach((m, i) => {
+    const f = document.createElement('div');
+    f.className = 'm-fila';
+    f.innerHTML = '<span class="d">Muestra ' + (i + 1) + ' · ' + fechaCorta(m.t) + '</span><button class="x">Borrar</button>';
+    f.querySelector('.x').addEventListener('click', () => {
+      if (!confirm('¿Borrar esta muestra? Las demás se quedan.')) return;
+      if (window.Mic && Mic.borrarMuestra) Mic.borrarMuestra(m.id);
+      pintarMuestrasEd();
+    });
+    cont.appendChild(f);
+  });
+}
+
+function abrirEditar(id){
+  const p = (estado.palabras || []).find(x => x.id === id);
+  if (!p) return;
+  editando = id;
+  document.getElementById('edFrase').value = p.frase || '';
+  document.getElementById('edDice').value = p.dice || '';
+  document.getElementById('edEmoji').value = p.em || '';
+  pintarMuestrasEd();
+  capaEditar.classList.add('abierto');
+}
+
+document.getElementById('btnEdGuardar').addEventListener('click', () => {
+  const p = (estado.palabras || []).find(x => x.id === editando);
+  if (!p) { cerrarEditar(); return; }
+  const frase = document.getElementById('edFrase').value.trim();
+  if (!frase){ document.getElementById('edFrase').focus(); return; }
+  p.frase = frase;
+  p.dice = document.getElementById('edDice').value.trim();
+  p.em = document.getElementById('edEmoji').value.trim() || '🗣️';
+  p.act = Date.now();
+  guardar();
+  if (window.Mic) Mic.pintarPalabras();
+  if (window.Supa) Supa.encolar(400);
+  cerrarEditar();
+});
+
 /* ---------- respaldo en archivo ---------- */
 document.getElementById('btnRespaldo').addEventListener('click', () => {
   const datos = JSON.stringify({ app: 'AutoLeo', version: 1, fecha: new Date().toISOString(), estado }, null, 1);
@@ -521,7 +615,7 @@ pintarHistorial();
 window.App = {
   get estado(){ return estado; },
   set estado(v){ estado = v; },
-  guardar, decir, pintarHistorial,
+  guardar, decir, pintarHistorial, abrirEditar,
   anotar(fr, qu, em){
     const id = window.Supa ? Supa._uuid() : 'h' + Date.now();
     estado.historial = [{ id, fr, qu, em, t: Date.now() }, ...(estado.historial || [])].slice(0, 12);

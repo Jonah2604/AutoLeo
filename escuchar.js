@@ -54,6 +54,15 @@
     App.guardar();
   }
 
+  // borra una muestra suelta (salió mal grabada): local y en la nube
+  function borrarMuestra(mid) {
+    App.estado.voces = voces().filter(v => v.id !== mid);
+    App.estado.umbral = calcularUmbral();
+    App.guardar();
+    if (window.Supa && Supa.borrar) Supa.borrar('muestras', mid);
+    pintarPalabras();
+  }
+
   /* ---------- umbral automático ----------
      Compara las muestras de una misma palabra entre sí: una grabación nueva
      debe caer cerca de ese valor. El umbral queda un poco arriba para aceptar
@@ -260,6 +269,7 @@
         <span class="txt">${esc(p.frase)}<small>${p.dice ? '«' + esc(p.dice) + '»' : 'sin anotar cómo lo dice'}</small></span>
         <span class="cuenta">${n ? n + '/8' : '—'}</span>
         <button class="grabar">${n ? 'otra' : 'grabar'}</button>
+        <button class="ed" title="Editar">✎</button>
         <button class="del">✕</button>`;
       row.querySelector('.grabar').addEventListener('click', async ev => {
         const b = ev.currentTarget;
@@ -281,10 +291,18 @@
         }
         setTimeout(() => { b.disabled = false; b.textContent = 'grabar'; }, 1300);
       });
+      row.querySelector('.ed').addEventListener('click', () => {
+        if (window.App && App.abrirEditar) App.abrirEditar(p.id);
+      });
       row.querySelector('.del').addEventListener('click', () => {
         if (!confirm('¿Borrar «' + p.frase + '» y sus muestras?')) return;
+        const suyas = voces().filter(v => v.etiqueta === p.id);
         App.estado.palabras = palabras().filter(x => x.id !== p.id);
         App.estado.voces = voces().filter(v => v.etiqueta !== p.id);
+        if (window.Supa && Supa.borrar) {
+          suyas.forEach(v => Supa.borrar('muestras', v.id));
+          Supa.borrar('palabras', p.id);
+        }
         App.estado.umbral = calcularUmbral();
         App.guardar(); pintarPalabras();
       });
@@ -294,7 +312,7 @@
 
   window.Mic = {
     pedirMicro, grabar, reconocer, calcularUmbral, pintarPalabras,
-    escucharAhora, manosLibres, traducir, aprender,
+    escucharAhora, manosLibres, traducir, aprender, borrarMuestra,
     _ultima: () => ultimaEscucha,
     _palabraDe: palabraDe, _voces: voces, _guardarHuella: guardarHuella
   };
