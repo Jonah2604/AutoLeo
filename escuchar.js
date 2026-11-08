@@ -173,7 +173,7 @@
     // Un 12% de ventaja ya es señal suficiente para creerle al ganador.
     const ganadorClaro = !segunda || mejor.distancia * 1.12 <= segunda.distancia;
     const limite = umbral * (ganadorClaro ? 1.3 : 1.0);
-    const pasa = mejor.distancia <= limite && !ambiguo;
+    const pasa = isFinite(mejor.distancia) && mejor.distancia <= limite && !ambiguo;
 
     return {
       ok: pasa, etiqueta: mejor.etiqueta,
@@ -185,6 +185,16 @@
   }
 
   function palabraDe(id) { return palabras().find(p => p.id === id) || null; }
+
+  /* Un buffer de puro ruido de fondo produce una huella válida y se parece a
+     cualquier palabra; por eso hay que descartarlo antes de comparar. */
+  function esSilencio(buf) {
+    const d = buf instanceof Float32Array ? buf : buf.getChannelData(0);
+    let suma = 0, pico = 0;
+    for (let i = 0; i < d.length; i++) { suma += d[i] * d[i]; if (Math.abs(d[i]) > pico) pico = Math.abs(d[i]); }
+    const rms = Math.sqrt(suma / d.length);
+    return rms < 0.012 && pico < 0.08;
+  }
 
   /* Qué tan distintas son entre sí las muestras de una palabra. Si sale alta, esa
      palabra se grabó de formas muy diferentes y va a fallar al reconocerla. */
@@ -237,6 +247,11 @@
     try {
       if (!silencioso) App.decir({ em: '👂', tx: 'Escuchando…', cat: 'habla ahora' });
       const buf = bufPrueba || await grabar(3500);
+      // si no se dijo nada, no comparar: el silencio se parecía a alguna palabra y la app "adivinaba"
+      if (buf && !bufPrueba && esSilencio(buf)) {
+        if (!silencioso) App.decir({ em: '👂', tx: 'No te escuché', cat: 'habla un poquito más fuerte' });
+        return { ok: false, motivo: 'silencio' };
+      }
       const r = reconocer(buf);
       const t = traducir(r, silencioso);
       ultimaEscucha = { buf, ok: !!t.ok, etiqueta: t.ok ? (r.etiqueta || null) : null, frase: t.frase || null, ranking: r.ranking || [] };
@@ -399,6 +414,7 @@
     escucharAhora, manosLibres, traducir, aprender, borrarMuestra,
     _ultima: () => ultimaEscucha,
     _palabraDe: palabraDe, _voces: voces, _guardarHuella: guardarHuella,
-    _parecidoA: parecidoA, _confirmarParecido: confirmarParecido
+    _parecidoA: parecidoA, _confirmarParecido: confirmarParecido,
+    _esSilencio: esSilencio, _dispersion: dispersion
   };
 })();

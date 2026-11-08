@@ -207,7 +207,12 @@
   /* ---------------- DTW ---------------- */
   function dtw(a, b) {
     const n = a.length, m = b.length;
-    const band = Math.max(12, Math.floor(Math.max(n, m) * 0.35));
+    // La banda de Sakoe-Chiba no puede ser más angosta que la diferencia de duración:
+    // comparando una palabra corta (16 tramas) con una de 2 s (200 tramas) el camino
+    // quedaba fuera de la banda, todo salía Infinity y la distancia daba NaN.
+    // Con NaN la app no reconocía NADA que durara muy distinto a lo guardado.
+    const band = Math.max(12, Math.ceil(Math.abs(n - m) * 1.25) + 10,
+                          Math.floor(Math.max(n, m) * 0.35));
     let prev = new Float32Array(m + 1).fill(Infinity);
     let cur = new Float32Array(m + 1).fill(Infinity);
     prev[0] = 0;
