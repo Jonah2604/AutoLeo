@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1020">
+<title>AutoLeo</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root{
+    --bg:#0b1020; --card:#18213a; --card2:#212c4a; --line:#2b3757;
+    --txt:#eef2ff; --mut:#9aa6c4; --gold:#e8c25a; --ok:#4ec9a0; --rojo:#ff6b6b;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{background:radial-gradient(1200px 600px at 50% -10%,#16213f 0%,var(--bg) 55%);
+    color:var(--txt);font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
+    padding:16px 14px calc(16px + env(safe-area-inset-bottom));min-height:100%;
+    display:flex;flex-direction:column;gap:14px}
+  header{display:flex;align-items:center;gap:10px}
+  header h1{font-size:19px;margin:0;flex:1;letter-spacing:.2px}
+  .ico{background:var(--card);border:1px solid var(--line);color:var(--txt);
+    border-radius:12px;width:42px;height:42px;font-size:19px;cursor:pointer}
+  .ico:active{transform:scale(.96)}
+  #estadoVoz{font-size:10.5px;color:var(--mut);text-align:center}
+
+  #resultado{background:var(--card);border:1px solid var(--line);border-radius:20px;
+    padding:20px 16px;text-align:center;min-height:180px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:6px;transition:border-color .2s,box-shadow .2s}
+  #resultado.hablando{border-color:var(--gold);box-shadow:0 0 0 2px rgba(232,194,90,.18)}
+  #rEm{font-size:44px;line-height:1}
+  #rTx{font-size:29px;font-weight:800;line-height:1.15}
+  #rSub{font-size:13.5px;color:var(--mut)}
+
+  #btnEscuchar{width:100%;border:0;border-radius:999px;padding:22px 18px;font-size:21px;
+    font-weight:800;color:#1a1400;background:linear-gradient(180deg,#ffe9a8,#e8c25a 55%,#c99a2e);
+    box-shadow:0 10px 26px rgba(232,194,90,.22);cursor:pointer;display:flex;align-items:center;
+    justify-content:center;gap:10px}
+  #btnEscuchar:active{transform:translateY(1px)}
+  #btnEscuchar.oyendo{background:linear-gradient(180deg,#ffd0d0,#ff6b6b 60%,#c53d3d);color:#2a0000}
+  #btnEscuchar[disabled]{opacity:.6}
+
+  nav{display:flex;gap:8px}
+  nav button{flex:1;background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    border-radius:14px;padding:12px 8px;font-size:13px;font-weight:600;cursor:pointer}
+  nav button.activo{border-color:var(--gold);color:var(--gold)}
+
+  .subt{font-size:11px;color:var(--gold);letter-spacing:1px;text-transform:uppercase;margin:2px 2px 0}
+  #historial{display:flex;flex-direction:column;gap:6px}
+  .dicho{display:flex;align-items:center;gap:10px;background:#131b31;border:1px solid var(--line);
+    border-radius:12px;padding:9px 11px;font-size:13px;cursor:pointer}
+  .dicho .fr{flex:1}
+  .dicho .qu{font-size:11px;color:var(--mut)}
+  .vacio{font-size:12.5px;color:var(--mut);text-align:center;padding:10px}
+
+  #panel{position:fixed;inset:0;background:rgba(4,7,16,.72);display:none;z-index:20;
+    align-items:flex-end;justify-content:center;backdrop-filter:blur(3px)}
+  #panel.abierto{display:flex}
+  #panel .hoja{background:#111829;border-top-left-radius:20px;border-top-right-radius:20px;
+    width:100%;max-width:560px;max-height:92vh;overflow:auto;padding:18px 16px calc(22px + env(safe-area-inset-bottom))}
+  #panel h3{margin:0 0 8px;font-size:17px}
+  #panel label{display:block;font-size:11.5px;color:var(--mut);margin:12px 0 5px}
+  #panel input,#panel select{width:100%;background:#0e1428;border:1px solid var(--line);color:var(--txt);
+    border-radius:10px;padding:10px;font:inherit;font-size:14px}
+  #panel input:focus,#panel select:focus{outline:0;border-color:var(--gold)}
+  .fila{display:flex;gap:8px;margin-top:14px}
+  .fila button{flex:1;border-radius:12px;padding:12px;font:inherit;font-size:14px;font-weight:600;
+    background:var(--card2);border:1px solid var(--line);color:var(--txt);cursor:pointer}
+  .fila button.pri{background:var(--gold);color:#1a1400;border-color:var(--gold);font-weight:800}
+  .separador{height:1px;background:var(--line);margin:18px 0 6px}
+  #listaPalabras{display:flex;flex-direction:column;margin-top:4px}
+  .p-fila{display:flex;align-items:center;gap:9px;padding:9px 2px;border-bottom:1px solid var(--line);font-size:13.5px}
+  .p-fila:last-child{border-bottom:0}
+  .p-fila .em{font-size:20px}
+  .p-fila .txt{flex:1;line-height:1.25}
+  .p-fila .txt small{display:block;color:var(--gold);font-size:11.5px;margin-top:2px}
+  .p-fila .cuenta{font-size:11px;color:var(--mut);min-width:26px;text-align:right}
+  .p-fila.listo .cuenta{color:var(--ok)}
+  .p-fila button{background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    border-radius:9px;padding:7px 10px;font-size:11.5px;font-weight:600;cursor:pointer}
+  .p-fila.listo button{border-color:var(--gold);color:var(--gold)}
+  .p-fila .del{color:var(--rojo);border-color:#4a2733}
+  .sens{display:flex;gap:6px;margin-top:8px}
+  .sens button{flex:1;background:var(--card2);border:1px solid var(--line);color:var(--mut);
+    border-radius:9px;padding:9px 4px;font-size:12px;cursor:pointer}
+  .sens button.sel{background:var(--gold);color:#1a1400;border-color:var(--gold);font-weight:700}
+  .nota{font-size:11.5px;color:var(--mut);line-height:1.45;margin-top:14px}
+  .cab{font-size:11.5px;color:var(--mut);margin-top:8px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>AutoLeo</h1>
+  <button class="ico" id="btnSilencio" title="Voz">🔊</button>
+  <button class="ico" id="btnAjustes" title="Ajustes">⚙️</button>
+</header>
+<div id="estadoVoz"></div>
+
+<div id="resultado">
+  <div id="rEm">👋</div>
+  <div id="rTx">Presiona y háblale</div>
+  <div id="rSub">La app dice la frase completa por él</div>
+</div>
+
+<button id="btnEscuchar">🎤 Escuchar</button>
+
+<nav>
+  <button id="btnRepetir">🔁 Repetir</button>
+  <button id="btnManos">👐 Manos libres</button>
+  <button id="btnLimpiar">✖ Limpiar</button>
+</nav>
+
+<div class="subt">Lo último que dijo</div>
+<div id="historial"></div>
+
+<div id="panel">
+  <div class="hoja">
+    <h3>Sus palabras</h3>
+    <p class="nota" style="margin-top:0">Anota cómo dice él cada palabra y graba unas muestras. Cuando la diga, la app dirá la frase completa en voz alta. Nada de esto sale del teléfono.</p>
+
+    <label>Qué significa / qué debe decir la app</label>
+    <input id="nuevaFrase" placeholder="Ej. Quiero agua" autocomplete="off">
+
+    <label>Cómo lo dice él</label>
+    <div style="display:flex;gap:8px">
+      <input id="nuevoDice" placeholder="Ej. awa" autocomplete="off" style="flex:1">
+      <input id="nuevoEmoji" placeholder="💧" maxlength="4" style="width:84px;text-align:center;font-size:19px">
+    </div>
+
+    <div class="fila">
+      <button class="pri" id="btnAgregar">Agregar palabra</button>
+      <button id="btnCerrar">Cerrar</button>
+    </div>
+
+    <div class="separador"></div>
+    <div class="cab" id="resumen"></div>
+    <div id="listaPalabras"></div>
+
+    <div class="nota">Graba unas 5 veces cada palabra, en el lugar donde él suele hablar. Si ves que confunde dos, sube la sensibilidad a <b>Estricto</b>.</div>
+  </div>
+</div>
+
+<script src="voz.js"></script>
+<script src="escuchar.js"></script>
+<script>
+const KEY = 'hablafacil.v2';
+const VIEJO = 'hablafacil.v1';
+
+let estado = cargar();
+function cargar(){
+  try {
+    const g = JSON.parse(localStorage.getItem(KEY));
+    if (g && Array.isArray(g.palabras)) return g;
+  } catch {}
+  // migración desde la versión con pictogramas: sus frases pasan a ser palabras
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEJO));
+    if (v && Array.isArray(v.tarjetas) && v.tarjetas.length){
+      const palabras = v.tarjetas.map(t => ({ id: t.id, frase: t.tx, dice: t.dice || '', em: t.em || '🗣️' }));
+      const mapa = {}; v.tarjetas.forEach(t => { mapa[t.tx] = t.id; });
+      const voces = (v.voces || []).map(x => ({ etiqueta: mapa[x.etiqueta] || x.etiqueta, huella: x.huella }))
+        .filter(x => palabras.some(p => p.id === x.etiqueta));
+      return { palabras, voces, umbral: v.umbral || null, sens: v.sens || 1, voz: v.voz !== false, manos: false, historial: [] };
+    }
+  } catch {}
+  return { palabras: [], voces: [], umbral: null, sens: 1, voz: true, manos: false, historial: [] };
+}
+function guardar(){ localStorage.setItem(KEY, JSON.stringify(estado)); }
+
+/* ---------- voz ---------- */
+let vozEs = null;
+function elegirVoz(){
+  if (!('speechSynthesis' in window)) { estadoVoz('sin voz en este navegador'); return; }
+  const vs = speechSynthesis.getVoices();
+  if (!vs.length) return;
+  const mx = vs.filter(v => /es-MX/i.test(v.lang));
+  vozEs = mx.find(v => /jorge|masculin|hombre/i.test(v.name)) || mx[0]
+        || vs.find(v => /^es/i.test(v.lang)) || null;
+  estadoVoz(vozEs ? 'voz: ' + vozEs.name : 'voz del sistema');
+}
+function estadoVoz(t){ document.getElementById('estadoVoz').textContent = t; }
+if ('speechSynthesis' in window){ speechSynthesis.onvoiceschanged = elegirVoz; elegirVoz(); }
+else estadoVoz('sin voz en este navegador');
+
+let ultimo = null;
+function decir(x){
+  ultimo = x;
+  document.getElementById('rEm').textContent = x.em || '🗣️';
+  document.getElementById('rTx').textContent = x.tx;
+  document.getElementById('rSub').textContent = x.cat || '';
+  const b = document.getElementById('resultado');
+  b.classList.add('hablando');
+  setTimeout(() => b.classList.remove('hablando'), 1200);
+  if (!estado.voz || !('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(x.tx);
+  if (vozEs) u.voice = vozEs;
+  u.lang = (vozEs && vozEs.lang) || 'es-MX';
+  u.rate = 0.92; u.pitch = 1.0;
+  speechSynthesis.speak(u);
+}
+
+/* ---------- historial ---------- */
+function pintarHistorial(){
+  const c = document.getElementById('historial');
+  c.innerHTML = '';
+  const h = estado.historial || [];
+  if (!h.length){ c.innerHTML = '<div class="vacio">Aquí van a aparecer sus frases.</div>'; return; }
+  for (const it of h){
+    const d = document.createElement('div');
+    d.className = 'dicho';
+    d.innerHTML = `<span>${it.em || '🗣️'}</span><span class="fr"></span><span class="qu"></span>`;
+    d.querySelector('.fr').textContent = it.fr;
+    d.querySelector('.qu').textContent = it.qu ? '«' + it.qu + '»' : '';
+    d.addEventListener('click', () => decir({ em: it.em, tx: it.fr, cat: it.qu ? 'Él dijo «' + it.qu + '»' : '' }));
+    c.appendChild(d);
+  }
+}
+
+/* ---------- panel ---------- */
+const panel = document.getElementById('panel');
+document.getElementById('btnAjustes').addEventListener('click', () => {
+  panel.classList.add('abierto');
+  if (window.Mic) Mic.pintarPalabras();
+});
+document.getElementById('btnCerrar').addEventListener('click', () => panel.classList.remove('abierto'));
+panel.addEventListener('click', e => { if (e.target === panel) panel.classList.remove('abierto'); });
+
+document.getElementById('btnAgregar').addEventListener('click', () => {
+  const frase = document.getElementById('nuevaFrase').value.trim();
+  const dice = document.getElementById('nuevoDice').value.trim();
+  const em = document.getElementById('nuevoEmoji').value.trim() || '🗣️';
+  if (!frase){ document.getElementById('nuevaFrase').focus(); return; }
+  estado.palabras.push({ id: 'p' + Date.now(), frase, dice, em });
+  guardar();
+  document.getElementById('nuevaFrase').value = '';
+  document.getElementById('nuevoDice').value = '';
+  document.getElementById('nuevoEmoji').value = '';
+  Mic.pintarPalabras();
+});
+
+document.getElementById('btnSilencio').addEventListener('click', e => {
+  estado.voz = !estado.voz; guardar();
+  e.currentTarget.textContent = estado.voz ? '🔊' : '🔇';
+  if (!estado.voz && 'speechSynthesis' in window) speechSynthesis.cancel();
+});
+document.getElementById('btnSilencio').textContent = estado.voz ? '🔊' : '🔇';
+
+document.getElementById('btnRepetir').addEventListener('click', () => { if (ultimo) decir(ultimo); });
+document.getElementById('btnEscuchar').addEventListener('click', () => { if (window.Mic) Mic.escucharAhora(); });
+document.getElementById('btnManos').addEventListener('click', () => {
+  if (!window.Mic) return;
+  Mic.manosLibres();
+});
+// el estado real de manos libres manda en el botón, aunque el micrófono falle
+window.__manosCambio = function (on) {
+  const b = document.getElementById('btnManos');
+  if (!b) return;
+  b.classList.toggle('activo', on);
+  b.textContent = on ? '⏹️ Detener' : '👐 Manos libres';
+};
+document.getElementById('btnLimpiar').addEventListener('click', () => {
+  ultimo = null;
+  document.getElementById('rEm').textContent = '👋';
+  document.getElementById('rTx').textContent = 'Presiona y háblale';
+  document.getElementById('rSub').textContent = 'La app dice la frase completa por él';
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+});
+
+pintarHistorial();
+
+window.App = {
+  get estado(){ return estado; },
+  set estado(v){ estado = v; },
+  guardar, decir, pintarHistorial,
+  anotar(fr, qu, em){
+    estado.historial = [{ fr, qu, em, t: Date.now() }, ...(estado.historial || [])].slice(0, 12);
+    guardar(); pintarHistorial();
+  }
+};
+
+if ('serviceWorker' in navigator){
+  addEventListener('load', async () => {
+    try {
+      await navigator.serviceWorker.register('sw.js');
+      await navigator.serviceWorker.ready;
+    } catch (e) { console.warn('sw', e.message); }
+  });
+}
+</script>
+</body>
+</html>
