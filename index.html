@@ -217,6 +217,15 @@
     <div id="listaPalabras"></div>
 
     <div class="separador"></div>
+    <div class="cab">Familia</div>
+    <p class="nota" id="famNota" style="margin-top:0">Escribe el código de la casa para ver las mismas palabras en todos los teléfonos.</p>
+    <div style="display:flex;gap:8px">
+      <input id="famCodigo" placeholder="fam-..." autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1">
+      <button class="pri" id="btnUnir">Entrar</button>
+    </div>
+    <div id="famGente"></div>
+
+    <div class="separador"></div>
     <div class="cab">Respaldo</div>
     <div class="fila">
       <button id="btnRespaldo">⬇️ Guardar copia</button>
@@ -617,6 +626,46 @@ document.getElementById('archivoCopia').addEventListener('change', async e => {
     e.target.value = '';
   }
 });
+
+/* ---- familia ---- */
+async function pintarFamilia(){
+  const nota = document.getElementById('famNota');
+  const gente = document.getElementById('famGente');
+  if (!nota) return;
+  if (!window.Supa) { nota.textContent = 'Sin conexión con la nube: la app sigue funcionando en el teléfono.'; return; }
+  const i = await Supa.info();
+  if (i && i.familia){
+    nota.innerHTML = 'Estás en <b>' + (i.nombre || 'la familia') + '</b> como <b>' + (i.rol === 'dueno' ? 'dueño' : 'miembro') + '</b>.';
+    try {
+      const lista = await Supa.rpc('gente_familia');
+      gente.innerHTML = (lista || []).map(x => '<div class="nota">• ' + (x.etiqueta || 'sin nombre') + ' <span style="opacity:.6">(' + x.rol + ')</span></div>').join('');
+    } catch(e){ gente.innerHTML = ''; }
+  } else {
+    nota.innerHTML = 'Este teléfono todavía no tiene el código de la casa: solo ve lo que se grabó aquí.';
+    gente.innerHTML = '';
+  }
+}
+
+document.getElementById('btnUnir').addEventListener('click', async () => {
+  const caja = document.getElementById('famCodigo');
+  const b = document.getElementById('btnUnir');
+  const v = caja.value.trim();
+  if (!v) { caja.focus(); return; }
+  b.disabled = true; b.textContent = 'Entrando…';
+  try {
+    await Supa.unir(v);
+    await Supa.ciclo();
+    await pintarFamilia();
+    caja.value = '';
+    alert('Listo: este teléfono ya ve las palabras de la familia.');
+  } catch (e) {
+    alert('No pude entrar: ' + e.message);
+  } finally {
+    b.disabled = false; b.textContent = 'Entrar';
+  }
+});
+
+pintarFamilia();
 
 pintarHistorial();
 

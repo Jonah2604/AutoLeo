@@ -5,6 +5,7 @@
   const URL_BASE = 'https://vzeqzdxleclivrkctwvb.supabase.co';
   const LLAVE = 'sb_publishable_M3amZQW7hGZUiO5ePZ4yog_-IS6ERNX';
   const SKEY = 'autoleo.sesion';
+  const CKEY = 'autoleo.codigo';
 
   let sesion = null;
   let timer = null;
@@ -224,6 +225,52 @@
     return cambio;
   }
 
+  /* ---------- familia ----------
+     Cada telefono entra con el codigo de la casa. La app no trae ninguna
+     llave de datos: el codigo se cambia y los que quedan fuera dejan de ver. */
+  async function rpc(nombre, cuerpo) {
+    await entrar();
+    const r = await fetch(URL_BASE + '/rest/v1/rpc/' + nombre, {
+      method: 'POST',
+      headers: {
+        apikey: LLAVE,
+        Authorization: 'Bearer ' + sesion.access_token,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(cuerpo || {})
+    });
+    const t = await r.text();
+    if (!r.ok) {
+      let m = t;
+      try { m = JSON.parse(t).message || t; } catch (e) {}
+      throw new Error(m.slice(0, 120));
+    }
+    return t ? JSON.parse(t) : null;
+  }
+
+  async function info() {
+    try { return await rpc('mi_familia_info'); } catch (e) { return null; }
+  }
+
+  async function unir(codigo) {
+    const c = String(codigo || '').trim().toLowerCase();
+    const r = await rpc('unirse_familia', { p_codigo: c });
+    try { localStorage.setItem(CKEY, c); } catch (e) {}
+    return r;
+  }
+
+  /* si el telefono ya tenia el codigo guardado, entra solo */
+  async function entrarFamilia() {
+    const i = await info();
+    if (i && i.familia) return i;
+    let guardado = '';
+    try { guardado = localStorage.getItem(CKEY) || ''; } catch (e) {}
+    if (guardado) {
+      try { await unir(guardado); return await info(); } catch (e) { console.warn('familia', e.message); }
+    }
+    return null;
+  }
+
   async function ciclo() {
     if (subiendo || !navigator.onLine) { pendiente = true; marca('☁️ sin red', 'off'); return; }
     subiendo = true;
@@ -252,6 +299,10 @@
   async function iniciar() {
     normalizarIds();
     if (!navigator.onLine) { marca('☁️ sin red', 'off'); return; }
+    try {
+      const i = await entrarFamilia();
+      if (!i || !i.familia) marca('☁️ falta el código', 'off');
+    } catch (e) { console.warn('familia', e.message); }
     await ciclo();
   }
 
@@ -260,6 +311,7 @@
 
   window.Supa = {
     iniciar, encolar, ciclo, subir, bajar, entrar, marca, borrar,
+    info, unir, rpc,
     get sesion() { return sesion; },
     get pendiente() { return pendiente; },
     _uuid: uuid
