@@ -281,6 +281,118 @@
     return frames;
   }
 
+
+  /* ---------------- sintetizar voz desde una huella ----------------
+     Reconstruye una señal a partir de los coeficientes: la envolvente de
+     energía de cada trama (c0) y la forma del espectro (c1..c12).
+     No es la grabación original, es su "molde": suena a esa voz y a esa
+     palabra, sin necesitar ningún archivo de audio ni subir nada. */
+  function reverso(huella) {
+    const n = huella.length;
+    if (!n) return null;
+    // media y desviación con las que se estandarizó cada coeficiente
+    const centro = new Array(NCOEF).fill(0);
+    const media = new Array(NCOEF).fill(1);
+    for (let k = 0; k < NCOEF; k++) {
+      let s = 0, s2 = 0;
+      for (let t = 0; t < n; t++) { const v = huella[t][k] || 0; s += v; s2 += v * v; }
+      const mu = s / n;
+      centro[k] = mu;
+      media[k] = Math.sqrt(Math.max(1e-6, s2 / n - mu * mu));
+    }
+    const hop = HOP;
+    const total = (n - 1) * hop + FRAME;
+    const y = new Float32Array(total);
+    const win = new Float32Array(FRAME);
+    for (let i = 0; i < FRAME; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (FRAME - 1));
+
+    /* Paso inverso al cálculo de la huella: primero se deshace la
+       normalización (cada coeficiente se estandarizó restando su media y
+       dividiendo entre su desviación), luego el DCT inverso devuelve los
+       logaritmos de la energía por banda mel y se vuelve a energía. */
+    function logMelDe(c) {
+      const mel = new Float32Array(NMEL);
+      for (let m = 0; m < NMEL; m++) {
+        let s = 0;
+        for (let k = 0; k < NCOEF && k < c.length; k++) {
+          const z = (c[k] || 0) * (media[k] || 1) + centro[k];
+          s += z * dctTable[k][m];
+        }
+        mel[m] = s;
+      }
+      return mel;
+    }
+
+    // tabla de fases aleatorias fijas por bin: suena a voz, no a pitido
+    const fase = new Float32Array(NFFT / 2);
+    for (let k = 0; k < NFFT / 2; k++) fase[k] = Math.random() * Math.PI * 2;
+
+    let maxAbs = 1e-9;
+    for (let t = 0; t < n; t++) {
+      const c = huella[t];
+      const logMel = logMelDe(c);
+      // c0 es volumen de la trama (relativo a la media); las bandas dan el timbre
+      const amp = Math.exp(c[0] / 2);
+      const mag = new Float32Array(NFFT / 2);
+      for (let k = 1; k < NFFT / 2; k++) {
+        let num = 0, den = 0;
+        for (let m = 0; m < NMEL; m++) {
+          const w = melFilters[m].w[k];
+          if (w > 0) { num += w * Math.exp(logMel[m]); den += w; }
+        }
+        mag[k] = den > 0 ? Math.max(0, num / den) : 0;
+      }
+      const re = new Float32Array(NFFT), im = new Float32Array(NFFT);
+      for (let k = 1; k < NFFT / 2; k++) {
+        const a = mag[k] * amp;
+        re[k] = a * Math.cos(fase[k]);
+        im[k] = a * Math.sin(fase[k]);
+        re[NFFT - k] = re[k];
+        im[NFFT - k] = -im[k];
+      }
+      // IFFT en el mismo estilo que fftMagnitude
+      for (let len = NFFT; len > 1; len >>= 1) {
+        const half = len >> 1;
+        for (let i = 0; i < NFFT; i += len) {
+          for (let k = 0; k < half; k++) {
+            const wr = Math.cos(2 * Math.PI * k / len), wi = Math.sin(2 * Math.PI * k / len);
+            const ur = re[i + k], ui = im[i + k];
+            const vr = re[i + k + half] * wr - im[i + k + half] * wi;
+            const vi = re[i + k + half] * wi + im[i + k + half] * wr;
+            re[i + k] = ur + vr; im[i + k] = ui + vi;
+            re[i + k + half] = ur - vr; im[i + k + half] = ui - vi;
+          }
+        }
+      }
+      const off = t * hop;
+      for (let i = 0; i < FRAME; i++) {
+        const v = re[i] / NFFT * win[i];
+        y[off + i] += v;
+        const a = Math.abs(y[off + i]);
+        if (a > maxAbs) maxAbs = a;
+      }
+    }
+
+    // sube el volumen hasta el tope sin que recorte (los coeficientes vienen
+    // escalados y la señal sintetizada sale baja)
+    let rms = 0;
+    for (let i = 0; i < y.length; i++) rms += y[i] * y[i];
+    rms = Math.sqrt(rms / y.length) || 1e-9;
+    const gain = Math.min(6, 0.22 / rms);
+    for (let i = 0; i < y.length; i++) {
+      let v = y[i] * gain;
+      if (v > 0.97) v = 0.97; else if (v < -0.97) v = -0.97;
+      y[i] = v;
+    }
+    const borde = Math.min(160, Math.floor(y.length / 4));
+    for (let i = 0; i < borde; i++) {
+      const f = i / borde;
+      y[i] *= f;
+      y[y.length - 1 - i] *= f;
+    }
+    return { data: y, sr: SR };
+  }
+
   /* ---------------- API pública ---------------- */
   const Voz = {
     SR, NCOEF,
@@ -302,7 +414,7 @@
       const orden = [...porEtiqueta.entries()].sort((a, b) => a[1] - b[1]);
       return orden.map(([etiqueta, distancia]) => ({ etiqueta, distancia }));
     },
-    packMFCC, unpackMFCC,
+    packMFCC, unpackMFCC, reverso,
     dtw,
     _mfcc: mfcc,
     _trim: trimSilence,
