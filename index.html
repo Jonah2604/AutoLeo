@@ -219,8 +219,13 @@
     <div class="separador"></div>
     <div class="cab">Familia</div>
     <p class="nota" id="famNota" style="margin-top:0">Escribe el código de la casa para ver las mismas palabras en todos los teléfonos.</p>
+    <div id="famCasa" style="display:none;margin:4px 0 10px">
+      <div class="nota">Código para los demás teléfonos</div>
+      <div id="famCorto" style="font-size:27px;font-weight:800;letter-spacing:3px;color:var(--gold)">—</div>
+      <div class="fila"><button id="btnNuevoCodigo">🔄 Cambiar código</button></div>
+    </div>
     <div style="display:flex;gap:8px">
-      <input id="famCodigo" placeholder="fam-..." autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1">
+      <input id="famCodigo" placeholder="leo-0000" autocomplete="off" autocapitalize="off" spellcheck="false" style="flex:1">
       <button class="pri" id="btnUnir">Entrar</button>
     </div>
     <div id="famGente"></div>
@@ -634,13 +639,20 @@ async function pintarFamilia(){
   if (!nota) return;
   if (!window.Supa) { nota.textContent = 'Sin conexión con la nube: la app sigue funcionando en el teléfono.'; return; }
   const i = await Supa.info();
+  const casa = document.getElementById('famCasa');
   if (i && i.familia){
     nota.innerHTML = 'Estás en <b>' + (i.nombre || 'la familia') + '</b> como <b>' + (i.rol === 'dueno' ? 'dueño' : 'miembro') + '</b>.';
+    if (i.corto) { casa.style.display = 'block'; document.getElementById('famCorto').textContent = i.corto; }
+    else casa.style.display = 'none';
     try {
       const lista = await Supa.rpc('gente_familia');
-      gente.innerHTML = (lista || []).map(x => '<div class="nota">• ' + (x.etiqueta || 'sin nombre') + ' <span style="opacity:.6">(' + x.rol + ')</span></div>').join('');
+      gente.innerHTML = (lista || []).map(x => '<div class="nota" style="display:flex;align-items:center;gap:8px">• ' +
+          (x.etiqueta || 'sin nombre') + ' <span style="opacity:.6">(' + x.rol + ')</span>' +
+          (i.rol === 'dueno' && x.rol !== 'dueno' ? '<button class="quitar" data-id="' + x.user_id + '" style="margin-left:auto;border:1px solid var(--line);background:var(--card2);color:var(--rojo);border-radius:8px;padding:3px 9px;font:inherit;font-size:12px">quitar</button>' : '') +
+        '</div>').join('');
     } catch(e){ gente.innerHTML = ''; }
   } else {
+    casa.style.display = 'none';
     nota.innerHTML = 'Este teléfono todavía no tiene el código de la casa: solo ve lo que se grabó aquí.';
     gente.innerHTML = '';
   }
@@ -663,6 +675,23 @@ document.getElementById('btnUnir').addEventListener('click', async () => {
   } finally {
     b.disabled = false; b.textContent = 'Entrar';
   }
+});
+
+document.getElementById('btnNuevoCodigo').addEventListener('click', async () => {
+  if (!confirm('Se cambia el código de la casa. Los teléfonos que ya están dentro siguen dentro; el código viejo deja de servir para entrar. ¿Seguir?')) return;
+  try {
+    const r = await Supa.rpc('nuevo_codigo');
+    document.getElementById('famCorto').textContent = r.corto;
+    alert('Código nuevo: ' + r.corto);
+  } catch (e) { alert('No pude cambiarlo: ' + e.message); }
+});
+
+document.getElementById('famGente').addEventListener('click', async ev => {
+  const b = ev.target.closest('.quitar');
+  if (!b) return;
+  if (!confirm('¿Quitar este teléfono de la familia? Dejará de ver las palabras.')) return;
+  try { await Supa.rpc('expulsar', { p_user: b.dataset.id }); await pintarFamilia(); }
+  catch (e) { alert('No pude quitarlo: ' + e.message); }
 });
 
 pintarFamilia();
