@@ -330,29 +330,6 @@
       + 'Si te equivocas aquí, la app aprende mal.');
   }
 
-  /* Oír cómo lo dice Leo: se reconstruye el sonido a partir de una de sus
-     muestras. No se guarda ni se sube ningún audio: la huella ya estaba. */
-  let reproductor = null;
-
-  async function oirMuestra(id) {
-    const suyas = muestrasDe(id);
-    if (!suyas.length) throw new Error('sin muestras');
-    const v = suyas[Math.floor(Math.random() * suyas.length)];
-    const h = Voz.unpackMFCC(v.p);
-    if (!h || !h.length) throw new Error('huella vacía');
-    const { data, sr } = Voz.reverso(h);
-    if (!ctxAudio) ctxAudio = new (window.AudioContext || window.webkitAudioContext)();
-    if (ctxAudio.state === 'suspended') await ctxAudio.resume();
-    const buf = ctxAudio.createBuffer(1, data.length, sr);
-    buf.copyToChannel(data, 0);
-    if (reproductor) { try { reproductor.onended = null; reproductor.stop(); } catch (e) {} }
-    reproductor = ctxAudio.createBufferSource();
-    reproductor.buffer = buf;
-    reproductor.connect(ctxAudio.destination);
-    reproductor.start();
-    await new Promise(r => { reproductor.onended = r; setTimeout(r, 3000); });
-  }
-
   function pintarPalabras() {
     const cont = $('#listaPalabras');
     if (!cont) return;
@@ -390,7 +367,6 @@
       row.innerHTML = `<span class="em">${esc(p.em || '🗣️')}</span>
         <span class="txt">${esc(p.frase)}<small>${p.dice ? '«' + esc(p.dice) + '»' : 'sin anotar cómo lo dice'}${disp !== null ? ' · disp ' + disp : ''}</small></span>
         <span class="cuenta${n && n < 3 ? ' pocas' : ''}" title="${n && n < 3 ? 'Con menos de 3 muestras el umbral sale de una sola comparación' : ''}">${n ? n + '/8' + (n < 3 ? ' · faltan ' + (3 - n) : '') : '—'}</span>
-        <button class="oir" title="Oír cómo lo dice Leo"${n ? '' : ' disabled'}>🔊</button>
         <button class="grabar">${n ? 'otra' : 'grabar'}</button>
         <button class="ed" title="Editar">✎</button>
         <button class="del">✕</button>`;
@@ -417,13 +393,6 @@
         }
         setTimeout(() => { b.disabled = false; b.textContent = 'grabar'; }, 1300);
       });
-      row.querySelector('.oir').addEventListener('click', async ev => {
-        const b = ev.currentTarget;
-        if (b.disabled) return;
-        b.disabled = true;
-        try { await oirMuestra(p.id); } catch (e) { b.textContent = '✕'; }
-        setTimeout(() => { b.textContent = '🔊'; b.disabled = !muestrasDe(p.id).length; }, 400);
-      });
       row.querySelector('.ed').addEventListener('click', () => {
         if (window.App && App.abrirEditar) App.abrirEditar(p.id);
       });
@@ -444,7 +413,7 @@
   }
 
   window.Mic = {
-    pedirMicro, grabar, reconocer, calcularUmbral, pintarPalabras, oirMuestra,
+    pedirMicro, grabar, reconocer, calcularUmbral, pintarPalabras,
     escucharAhora, manosLibres, traducir, aprender, borrarMuestra,
     _ultima: () => ultimaEscucha,
     _palabraDe: palabraDe, _voces: voces, _guardarHuella: guardarHuella,
