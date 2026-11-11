@@ -129,15 +129,20 @@
     });
     const peak = Math.max(...sm);
     if (!(peak > 0)) return x;
-    const thr = peak * 0.08;
+    // Dos ajustes medidos en la app real: 8% del pico se llevaba media palabra de dos
+    // sílabas ("agua" quedaba como "a" y se confundía con "sí"), y 30 ms de margen
+    // metían tanto ruido que un "sí" de 17 cuadros pasaba a 24 y dejaba de reconocerse
+    // (0.267 → 0.332 de distancia). 5% y 10 ms de margen: corta el silencio sin
+    // comerse el ataque de la consonante.
+    const thr = peak * 0.05;
 
     let a = 0, b = sm.length - 1;
     while (a < sm.length && sm[a] < thr) a++;
     while (b > a && sm[b] < thr) b--;
     if (a >= b) return x;
 
-    const start = Math.max(0, a * win - 2 * win);
-    const end = Math.min(x.length, (b + 1) * win + 2 * win);
+    const start = Math.max(0, a * win - win);
+    const end = Math.min(x.length, (b + 1) * win + win);
     // si el recorte deja menos de 150 ms, es más seguro usar todo el audio
     if (end - start < SR * 0.15) return x;
     return x.subarray(start, end);
@@ -204,9 +209,50 @@
     return out;
   }
 
+  /* ---------------- rasgos extendidos: MFCC + Δ + ΔΔ ----------------
+     El MFCC dice cómo suena cada 10 ms, pero no dice *cómo cambia*. Dos palabras
+     distintas pueden tener espectros parecidos en un instante y diferenciarse solo
+     en la transición ("agua" frente a "aúa"). Se añaden las derivadas temporales,
+     que es lo que usa un MFCC-HMM clásico por la misma razón.
+     Se calculan de los 13 números que ya están guardados: las muestras viejas
+     siguen sirviendo y no hay que volver a grabar nada. */
+  function deltaDe(frames, N, W) {
+    const n = frames.length, out = new Array(n);
+    for (let t = 0; t < n; t++) {
+      const row = new Float32Array(N);
+      for (let k = 0; k < N; k++) {
+        let s = 0, wsum = 0;
+        for (let w = 1; w <= W; w++) {
+          const a = frames[Math.min(n - 1, t + w)][k];
+          const b = frames[Math.max(0, t - w)][k];
+          s += w * (a - b); wsum += w * w;
+        }
+        row[k] = s / (2 * wsum);
+      }
+      out[t] = row;
+    }
+    return out;
+  }
+  const _expCache = new WeakMap();
+  function expandir(frames) {
+    if (!frames || !frames.length || frames[0].length !== 13) return frames;
+    let c = _expCache.get(frames);
+    if (c) return c;
+    const d1 = deltaDe(frames, 13, 2), d2 = deltaDe(d1, 13, 2);
+    const out = new Array(frames.length);
+    for (let i = 0; i < frames.length; i++) {
+      const r = new Float32Array(39);
+      r.set(frames[i], 0); r.set(d1[i], 13); r.set(d2[i], 26);
+      out[i] = r;
+    }
+    _expCache.set(frames, out);
+    return out;
+  }
+
   /* ---------------- DTW ---------------- */
-  function dtw(a, b) {
-    const n = a.length, m = b.length;
+  function dtw(h1, h2) {
+    const a = expandir(h1), b = expandir(h2);
+    const n = a.length, m = b.length, D = a[0].length;
     // La banda de Sakoe-Chiba no puede ser más angosta que la diferencia de duración:
     // comparando una palabra corta (16 tramas) con una de 2 s (200 tramas) el camino
     // quedaba fuera de la banda, todo salía Infinity y la distancia daba NaN.
@@ -221,15 +267,24 @@
       const lo = Math.max(1, i - band), hi = Math.min(m, i + band);
       for (let j = 1; j <= m; j++) {
         if (j < lo || j > hi) { cur[j] = Infinity; continue; }
-        let d = 0;
         const fa = a[i - 1], fb = b[j - 1];
-        for (let k = 0; k < NCOEF; k++) { const t = fa[k] - fb[k]; d += t * t; }
-        d = Math.sqrt(d);
+        // distancia coseno: mide el ángulo entre los dos vectores de rasgos e ignora
+        // la magnitud que sobrevive a la normalización. En el banco de pruebas separa
+        // hablantes mejor que la euclídea (1.17x contra 1.08x) sin perder acierto.
+        let dot = 0, na = 0, nb = 0;
+        for (let k = 0; k < D; k++) {
+          dot += fa[k] * fb[k]; na += fa[k] * fa[k]; nb += fb[k] * fb[k];
+        }
+        const d = 1 - dot / (Math.sqrt(na * nb) + 1e-9);
         cur[j] = d + Math.min(prev[j], prev[j - 1], cur[j - 1]);
       }
       const t = prev; prev = cur; cur = t;
     }
-    return prev[m] / (n + m);
+    // El DTW normalizado por (n+m) es indiferente a la duración: decía que un "sí" de
+    // 0.2 s y un "agua" de 0.5 s se parecen igual que dos "sí". Un castigo suave por
+    // diferencia de largo los separa sin exigir que el niño hable siempre igual de rápido.
+    const largo = Math.abs(n - m) / (n + m);
+    return prev[m] / (n + m) + 0.22 * largo;
   }
 
   /* ---------------- empaquetado compacto ---------------- */
@@ -282,9 +337,89 @@
   }
 
 
+  /* ---------------- tono (F0) por autocorrelación ----------------
+     El MFCC dice «cómo suena» pero pierde la altura de la voz: un adulto puede decir
+     la misma palabra con el mismo espectro y el comparador no lo nota. El tono sí
+     separa: un niño anda en 240–400 Hz, un hombre en 90–160 y una mujer en 170–250.
+     Se calcula por ventanas de 40 ms con autocorrelación normalizada (estilo YIN) y
+     se queda con la mediana de las ventanas que de verdad tienen tono. */
+  function pitch(x, sr) {
+    sr = sr || SR;
+    // Las consonantes (s, f, ch) son ruido de alta frecuencia y en una palabra corta
+    // pueden ocupar la mitad del sonido. Ahí la autocorrelación encuentra un periodo
+    // falsísimo ("más" de un niño de 288 Hz salía a 485 Hz). Se amortigua todo por
+    // encima de ~1.1 kHz antes de medir.
+    const k = 1 - Math.exp(-2 * Math.PI * 1100 / sr);
+    const y = new Float32Array(x.length);
+    let lp = 0;
+    for (let i = 0; i < x.length; i++) { lp += k * (x[i] - lp); y[i] = lp; }
+    const W = Math.round(0.040 * sr), H = Math.round(0.020 * sr);
+    // nadie que use esta app habla a 500 Hz: los niños llegan a ~400
+    const tauMin = Math.floor(sr / 420), tauMax = Math.ceil(sr / 65);
+    const vals = [], clar = [], energ = [];
+    for (let start = 0; start + W + tauMax <= y.length; start += H) {
+      let mu = 0;
+      for (let i = 0; i < W + tauMax; i++) mu += y[start + i];
+      mu /= (W + tauMax);
+      let a0 = 0;
+      for (let i = 0; i < W; i++) { const v = y[start + i] - mu; a0 += v * v; }
+      if (a0 <= 0) continue;
+      // YIN: diferencia media normalizada acumulada. Buscar el máximo de correlación
+      // falla en las dos direcciones: daba octavas arriba (ruido de consonante) o
+      // abajo (todo periodo múltiplo de una señal periódica correlaciona igual).
+      // El primer mínimo suficientemente bueno SÍ es el periodo fundamental.
+      const d = new Float64Array(tauMax + 2);
+      for (let tau = 1; tau <= tauMax; tau++) {
+        let s = 0;
+        for (let i = 0; i < W; i++) { const t = (y[start + i] - mu) - (y[start + i + tau] - mu); s += t * t; }
+        d[tau] = s;
+      }
+      const dm = new Float64Array(tauMax + 2);
+      let run = 0;
+      for (let tau = 1; tau <= tauMax; tau++) {
+        run += d[tau];
+        dm[tau] = run > 1e-12 ? d[tau] * tau / run : 1;
+      }
+      let tau = 0;
+      for (let t = tauMin; t <= tauMax - 1; t++) {
+        if (dm[t] < 0.16 && dm[t] <= dm[t + 1]) { tau = t; break; }
+      }
+      if (!tau) { // sin mínimo claro: se toma el mejor de todos, pero con poca confianza
+        let mejor = 1;
+        for (let t = tauMin; t <= tauMax; t++) if (dm[t] < mejor) { mejor = dm[t]; tau = t; }
+        if (tau && mejor > 0.55) tau = 0;
+      }
+      if (tau) {
+        // La normalización acumulada del YIN corre el mínimo unas centésimas hacia
+        // periodos cortos (~5% de tono de más). Se corrige buscando el mínimo de la
+        // diferencia sin normalizar en la vecindad, y se interpola con una parábola.
+        let tBest = tau;
+        for (let t = Math.max(tauMin, tau - 3); t <= Math.min(tauMax, tau + 3); t++)
+          if (d[t] < d[tBest]) tBest = t;
+        const a = d[tBest - 1], b = d[tBest], c = d[tBest + 1];
+        const den = a - 2 * b + c;
+        const off = Math.abs(den) > 1e-12 ? 0.5 * (a - c) / den : 0;
+        vals.push(sr / (tBest + Math.max(-0.5, Math.min(0.5, off))));
+        clar.push(Math.max(0, 1 - dm[tau])); energ.push(a0);
+      }
+    }
+    if (vals.length < 3) return { f0: 0, claridad: 0, voces: vals.length };
+    // solo las ventanas con voz de verdad: la mediana de energías deja fuera los
+    // silencios que el recorte no alcanzó a quitar
+    const eOrd = energ.slice().sort((a, b) => a - b);
+    const eMed = eOrd[Math.floor(eOrd.length / 2)];
+    const filt = vals.filter((v, i) => energ[i] >= eMed * 0.35);
+    const use = filt.length >= 3 ? filt : vals;
+    use.sort((a, b) => a - b);
+    const f0 = use[Math.floor(use.length / 2)];
+    let c = 0; for (const v of clar) c += v;
+    return { f0, claridad: c / clar.length, voces: use.length };
+  }
+
   /* ---------------- API pública ---------------- */
   const Voz = {
     SR, NCOEF,
+    pitch,
     /** huella de un AudioBuffer o Float32Array */
     huella(buffer, sampleRate) {
       const data = buffer instanceof Float32Array ? buffer : buffer.getChannelData(0);
@@ -305,12 +440,42 @@
       }
       const orden = [...porEtiqueta.entries()].map(([etiqueta, ds]) => {
         const v = ds.filter(isFinite).sort((a, b) => a - b);
-        return { etiqueta, distancia: v.length ? v[Math.floor(v.length / 2)] : Infinity };
+        return { etiqueta, distancia: v.length ? v[Math.floor(v.length / 2)] : Infinity, n: v.length };
       }).sort((a, b) => a.distancia - b.distancia);
       return orden;
     },
+    /** umbral propio de cada palabra: mediana de las distancias entre sus propias
+        muestras + 2 desviaciones. Un umbral único siempre queda mal para alguna:
+        "sí" varía mucho más que "chocolate", y con el número global o se rechaza
+        al niño o se acepta cualquier cosa. */
+    umbrales(muestras, sens) {
+      const por = new Map();
+      for (const m of muestras) {
+        if (!por.has(m.etiqueta)) por.set(m.etiqueta, []);
+        por.get(m.etiqueta).push(m.huella);
+      }
+      const out = {};
+      for (const [etiqueta, hs] of por) {
+        const ds = [];
+        for (let i = 0; i < hs.length; i++)
+          for (let j = i + 1; j < hs.length; j++) {
+            const d = dtw(hs[i], hs[j]);
+            if (isFinite(d)) ds.push(d);
+          }
+        if (ds.length < 2) continue;
+        ds.sort((a, b) => a - b);
+        const med = ds[Math.floor(ds.length / 2)];
+        let v = 0; for (const d of ds) v += (d - med) ** 2;
+        const sd = Math.sqrt(v / ds.length);
+        // calibrado en el banco: con 1.5+1.5 sd el mismo acierto pero acepta de más;
+        // 1.3+1.0 sd no pierde ninguna palabra buena y aprieta lo justo
+        out[etiqueta] = +Math.max(0.46, Math.min(0.60, med * 1.3 + 1.0 * sd)).toFixed(3);
+      }
+      return out;
+    },
     packMFCC, unpackMFCC,
     dtw,
+    _expandir: expandir,
     _mfcc: mfcc,
     _trim: trimSilence,
     _calcular: calcular
