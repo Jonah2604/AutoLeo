@@ -298,10 +298,16 @@
       for (const m of muestras) {
         const d = dtw(huella, m.huella);
         const prev = porEtiqueta.get(m.etiqueta);
-        if (prev === undefined || d < prev) porEtiqueta.set(m.etiqueta, d);
+        // mediana y no mínimo: con el mínimo, una sola muestra mal grabada (una tos,
+        // la tele de fondo) vuelve "reconocible" cualquier cosa que se le parezca.
+        if (prev === undefined) porEtiqueta.set(m.etiqueta, [d]);
+        else prev.push(d);
       }
-      const orden = [...porEtiqueta.entries()].sort((a, b) => a[1] - b[1]);
-      return orden.map(([etiqueta, distancia]) => ({ etiqueta, distancia }));
+      const orden = [...porEtiqueta.entries()].map(([etiqueta, ds]) => {
+        const v = ds.filter(isFinite).sort((a, b) => a - b);
+        return { etiqueta, distancia: v.length ? v[Math.floor(v.length / 2)] : Infinity };
+      }).sort((a, b) => a.distancia - b.distancia);
+      return orden;
     },
     packMFCC, unpackMFCC,
     dtw,

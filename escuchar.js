@@ -186,6 +186,129 @@
 
   function palabraDe(id) { return palabras().find(p => p.id === id) || null; }
 
+  /* ---------- recortar: quedarse solo con lo que suena a él ----------
+     El micrófono oye todo el cuarto: si alguien más habla, la app toma esa voz
+     y la compara como si fuera la del niño. Aquí se separa cada «bocanada» de
+     sonido (cada vez que se rompe el silencio) y se elige la que más se parece
+     a las muestras que ya tiene guardadas. Si se dudan dos, se guardan las dos
+     y decide el comparador. Así un adulto hablando al lado deja de robarle el turno. */
+
+  function aMono(buf) {
+    if (buf instanceof Float32Array) return { d: buf, sr: 16000 };
+    const sr = buf.sampleRate || 16000;
+    const n = buf.length;
+    if (buf.numberOfChannels === 1) return { d: buf.getChannelData(0), sr };
+    const a = buf.getChannelData(0), b = buf.getChannelData(1);
+    const m = new Float32Array(n);
+    for (let i = 0; i < n; i++) m[i] = (a[i] + b[i]) / 2;
+    return { d: m, sr };
+  }
+
+  // partes en las que hay voz: se corta cuando la energía cae y se mantiene baja
+  function segmentos(buf) {
+    const { d, sr } = aMono(buf);
+    const ventana = Math.max(1, Math.round(sr * 0.02));   // 20 ms, como un cuadro de habla
+    const cuadros = [];
+    for (let i = 0; i + ventana <= d.length; i += ventana) {
+      let s = 0;
+      for (let j = 0; j < ventana; j++) s += d[i + j] * d[i + j];
+      cuadros.push(Math.sqrt(s / ventana));
+    }
+    if (!cuadros.length) return [];
+    const orden = cuadros.slice().sort((a, b) => a - b);
+    const piso = orden[Math.floor(orden.length * 0.10)] || 0;       // ruido de fondo
+    const tope = orden[Math.floor(orden.length * 0.95)] || 0;
+    const corte = Math.max(piso * 2.0, tope * 0.16, 0.008);
+    const fuera = Math.max(1, Math.round(0.12 / 0.02));            // 120 ms de silencio cierran un trozo
+    const trozos = [];
+    let ini = -1, callado = 0;
+    for (let k = 0; k < cuadros.length; k++) {
+      if (cuadros[k] >= corte) {
+        if (ini < 0) ini = k;
+        callado = 0;
+      } else if (ini >= 0) {
+        callado++;
+        if (callado >= fuera) { trozos.push([ini, k - fuera + 1]); ini = -1; callado = 0; }
+      }
+    }
+    if (ini >= 0) trozos.push([ini, cuadros.length]);
+    // cada trozo, con 60 ms de aire a los lados y mínimo de 250 ms
+    const aire = Math.round(0.06 * sr);
+    return trozos.map(([a, b]) => {
+      const x = Math.max(0, a * ventana - aire);
+      const y = Math.min(d.length, b * ventana + aire);
+      return { d: d.slice(x, y), sr };
+    }).filter(t => t.d.length >= sr * 0.25);
+  }
+
+  // qué tan parecido es un trozo a lo ya grabado (mediana de distancias: no lo decidE una sola muestra)
+  function parecidoATrozos(trozo) {
+    const h = Voz.huella({ getChannelData: () => trozo.d, sampleRate: trozo.sr, length: trozo.d.length, numberOfChannels: 1 });
+    if (!h) return { d: null, id: null };
+    const porEtiqueta = {};
+    for (const v of voces()) {
+      const hv = Voz.unpackMFCC(v.p);
+      if (!hv) continue;
+      const dd = Voz.dtw(h, hv);
+      if (!isFinite(dd)) continue;
+      (porEtiqueta[v.etiqueta] = porEtiqueta[v.etiqueta] || []).push(dd);
+    }
+    let id = null, mejor = Infinity;
+    for (const [k, arr] of Object.entries(porEtiqueta)) {
+      arr.sort((a, b) => a - b);
+      const med = arr[Math.floor(arr.length / 2)];
+      if (med < mejor) { mejor = med; id = k; }
+    }
+    return { d: isFinite(mejor) ? mejor : null, id };
+  }
+
+  /* Devuelve el buffer a comparar. Sin muestras guardadas no hay de dónde elegir:
+     se devuelve tal cual y se avisa. */
+  function limpiarRuido(buf) {
+    const sinVoces = !voces().length;
+    const trozos = segmentos(buf);
+    if (!trozos.length) return { buf, trozos: 0, elegido: 0, motivo: 'silencio', d: null };
+    if (sinVoces) return { buf, trozos: trozos.length, elegido: 0, motivo: 'sin muestras', d: null };
+    const punt = trozos.map((t, i) => ({ i, ...parecidoATrozos(t) })).filter(x => x.d != null);
+    if (!punt.length) return { buf, trozos: trozos.length, elegido: 0, motivo: 'sin datos', d: null };
+    punt.sort((a, b) => a.d - b.d);
+    const primero = punt[0];
+    /* Se queda con el trozo (o los dos) que más se parece a sus muestras. Antes se pegaban dos
+       trozos cuando las distancias andaban cerca y eso arruinaba el reconocimiento: pegar la voz
+       del papá con la del niño o la misma palabra repetida da una curva que no coincide con nada.
+       Solo se juntan si son del mismo grupo y la segunda casi empata — un tartamudeo, un corte. */
+    const segundo = punt.find(x => x.i !== primero.i);
+    const gemelo = segundo && segundo.id === primero.id &&
+                   segundo.d <= primero.d * 1.06 && Math.abs(segundo.i - primero.i) === 1 &&
+                   trozos[primero.i].d.length + trozos[segundo.i].d.length < 16000 * 1.8;
+    if (gemelo) {
+      const a = trozos[primero.i], b = trozos[segundo.i];
+      // la huella es un vector de 13 números por cuadro: se concatenan los cuadros,
+      // nunca se apilan las muestras (eso deja 26 columnas y el comparador devuelve NaN)
+      const x = Array.from(a.d), y2 = Array.from(b.d);
+      const d = new Float32Array(x.length + y2.length);
+      d.set(x, 0); d.set(y2, x.length);
+      return { buf: { getChannelData: () => d, sampleRate: a.sr, length: d.length, numberOfChannels: 1 },
+               trozos: trozos.length, elegido: 2, motivo: 'dos', d: primero.d, id: primero.id,
+               id2: segundo.id, d2: segundo.d };
+    }
+    const t = trozos[primero.i];
+    return { buf: { getChannelData: () => t.d, sampleRate: t.sr, length: t.d.length, numberOfChannels: 1 },
+             trozos: trozos.length, elegido: 1, motivo: 'uno', d: primero.d, id: primero.id };
+  }
+
+  /* Un trozo de 300–500 ms emite muy pocos cuadros y el comparador no alcanza a decidir;
+     si después de recortar la confianza queda fuera del umbral, se repite la comparación
+     con el audio completo (que es donde el emparejamiento largo sí funciona). Se queda el
+     resultado que reconozca; si ninguno reconoce, gana el de menor distancia. */
+  function reconocerConRespaldo(limpio, crudo) {
+    const a = reconocer(limpio.buf);
+    if (a.ok || !crudo) return a;
+    const b = reconocer(crudo);
+    if (b.ok) return { ...b, recorte: limpio };
+    return (b.distancia < a.distancia ? { ...b, recorte: limpio } : { ...a, recorte: limpio });
+  }
+
   /* Un buffer de puro ruido de fondo produce una huella válida y se parece a
      cualquier palabra; por eso hay que descartarlo antes de comparar. */
   function esSilencio(buf) {
@@ -230,9 +353,11 @@
       // si la palabra está mal grabada o si se parece demasiado a otra
       const cerca = r.ranking && r.ranking[0];
       const nom = cerca ? ((palabraDe(cerca.etiqueta) || {}).frase || '?') : '';
+      const rec = r.recorte || (ultimaEscucha && ultimaEscucha.recorte);
+      const cuantos = rec && rec.trozos > 1 ? ' · ' + rec.trozos + ' voces en el cuarto, usé la suya' : '';
       const det = cerca
-        ? 'd ' + r.distancia + ' · umbral ' + r.umbral + ' · más cerca «' + nom + '» ' + cerca.d
-        : 'no hubo comparación';
+        ? 'd ' + r.distancia + ' · umbral ' + r.umbral + ' · más cerca «' + nom + '» ' + cerca.d + cuantos
+        : 'no hubo comparación' + cuantos;
       App.decir({ em: '🤔', tx: 'No te entendí', cat: det + ' · toca abajo para enseñarle' });
     }
     return { ok: false };
@@ -249,17 +374,25 @@
       // celular metía su propia voz en la grabación, o el niño esperaba a que
       // terminara de hablar. Ahora solo se ve en pantalla y se graba en seguida.
       if (!silencioso) App.decir({ em: '👂', tx: 'Escuchando…', cat: 'habla ya', mudo: true });
-      const buf = bufPrueba || await grabar(3500);
+      const crudo = bufPrueba || await grabar(3500);
       // si no se dijo nada, no comparar: el silencio se parecía a alguna palabra y la app "adivinaba"
-      if (buf && !bufPrueba && esSilencio(buf)) {
+      if (crudo && !bufPrueba && esSilencio(crudo)) {
         if (!silencioso) App.decir({ em: '👂', tx: 'No te escuché', cat: 'habla un poquito más fuerte' });
         return { ok: false, motivo: 'silencio' };
       }
-      const r = reconocer(buf);
-      const t = traducir(r, silencioso);
-      ultimaEscucha = { buf, ok: !!t.ok, etiqueta: t.ok ? (r.etiqueta || null) : null, frase: t.frase || null, ranking: r.ranking || [] };
-      if (typeof window.__aprender === 'function') window.__aprender({ ok: !!t.ok, frase: t.frase || '', hayAudio: !!buf, ranking: r.ranking || [] });
-      return t;
+      const limpio = limpiarRuido(crudo);
+      if (limpio.motivo === 'silencio') {
+        if (!silencioso) App.decir({ em: '👂', tx: 'No te escuché', cat: 'habla un poquito más fuerte' });
+        return { ok: false, motivo: 'silencio' };
+      }
+      const buf = limpio.buf;
+      const r = reconocerConRespaldo(limpio, crudo);
+      // la huella del recorte depende del reloj del teléfono, no del momento: sí sirve para enseñar
+      const paraAprender = limpio.elegido ? buf : crudo;
+      const t = traducir({ ...r, recorte: limpio }, silencioso);
+      ultimaEscucha = { buf: paraAprender, ok: !!t.ok, etiqueta: t.ok ? (r.etiqueta || null) : null, frase: t.frase || null, ranking: r.ranking || [], recorte: limpio };
+      if (typeof window.__aprender === 'function') window.__aprender({ ok: !!t.ok, frase: t.frase || '', hayAudio: !!paraAprender, ranking: r.ranking || [], recorte: limpio });
+      return { ...t, recorte: limpio };
     } catch (e) {
       const m = String(e && e.message || e);
       if (!silencioso) {
@@ -418,6 +551,7 @@
     _ultima: () => ultimaEscucha,
     _palabraDe: palabraDe, _voces: voces, _guardarHuella: guardarHuella,
     _parecidoA: parecidoA, _confirmarParecido: confirmarParecido,
-    _esSilencio: esSilencio, _dispersion: dispersion
+    _esSilencio: esSilencio, _dispersion: dispersion,
+    _segmentos: segmentos, _limpiarRuido: limpiarRuido, _reconocerConRespaldo: reconocerConRespaldo
   };
 })();
