@@ -15,13 +15,15 @@
     --txt:#eef2ff; --mut:#9aa6c4; --gold:#e8c25a; --ok:#4ec9a0; --rojo:#ff6b6b;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{margin:0;height:100%}
+  html,body{margin:0}
+  html{height:auto;min-height:100%}
   body{background:radial-gradient(1200px 600px at 50% -10%,#16213f 0%,var(--bg) 55%);
     color:var(--txt);font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
-    padding:16px 14px calc(16px + env(safe-area-inset-bottom));min-height:100%;
+    padding:16px 14px calc(16px + env(safe-area-inset-bottom));min-height:100vh;min-height:100dvh;
+    height:auto;overflow-x:hidden;
     display:flex;flex-direction:column;gap:14px}
   header{display:flex;align-items:center;gap:10px}
-  header h1{font-size:19px;margin:0;flex:1;letter-spacing:.2px}
+  header h1{font-size:19px;margin:0;flex:1;min-width:0;letter-spacing:.2px;overflow-wrap:anywhere}
   .ico{background:var(--card);border:1px solid var(--line);color:var(--txt);
     border-radius:12px;width:42px;height:42px;font-size:19px;cursor:pointer}
   .ico:active{transform:scale(.96)}
@@ -30,6 +32,9 @@
   #resultado{background:var(--card);border:1px solid var(--line);border-radius:20px;
     padding:20px 16px;text-align:center;min-height:180px;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:6px;transition:border-color .2s,box-shadow .2s}
+  /* Si el telefono tiene el texto agrandado, el bloque crece en vez de salirse. */
+  #resultado>*{max-width:100%;min-width:0}
+  #rTx,#rSub{overflow-wrap:anywhere;word-break:break-word;hyphens:auto}
   #resultado.hablando{border-color:var(--gold);box-shadow:0 0 0 2px rgba(232,194,90,.18)}
   #rEm{font-size:44px;line-height:1}
   #rTx{font-size:29px;font-weight:800;line-height:1.15}
@@ -38,14 +43,14 @@
   #btnEscuchar{width:100%;border:0;border-radius:999px;padding:22px 18px;font-size:21px;
     font-weight:800;color:#1a1400;background:linear-gradient(180deg,#ffe9a8,#e8c25a 55%,#c99a2e);
     box-shadow:0 10px 26px rgba(232,194,90,.22);cursor:pointer;display:flex;align-items:center;
-    justify-content:center;gap:10px}
+    justify-content:center;gap:10px;max-width:100%;white-space:normal;line-height:1.2}
   #btnEscuchar:active{transform:translateY(1px)}
   #btnEscuchar.oyendo{background:linear-gradient(180deg,#ffd0d0,#ff6b6b 60%,#c53d3d);color:#2a0000}
   #btnEscuchar[disabled]{opacity:.6}
 
   #btnGrabarPalabra{width:100%;border:1px solid var(--line);border-radius:999px;padding:15px 18px;
     font:inherit;font-size:16px;font-weight:700;color:var(--txt);background:var(--card2);
-    cursor:pointer}
+    cursor:pointer;max-width:100%;white-space:normal;line-height:1.2}
   #btnGrabarPalabra:active{transform:translateY(1px)}
   #btnGrabarPalabra.ocupado{border-color:var(--gold);color:var(--gold)}
 
